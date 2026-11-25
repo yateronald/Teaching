@@ -16,6 +16,8 @@ const MIGRATION_HINT = {
   learn_events: 'backend/database/run-learning-analytics-migration.js',
   email_campaigns: 'backend/database/run-email-campaigns-migration.js',
   'demo_availability_requests.proposed_slots': 'backend/database/run-demo-proposed-slots-migration.js',
+  'organizations.portal_branding': 'backend/database/run-org-portal-branding-migration.js',
+  'organizations.cover_file_id': 'backend/database/run-org-portal-branding-migration.js',
 };
 
 async function probe(db, key, sql, params, hint) {

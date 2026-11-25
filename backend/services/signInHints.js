@@ -18,6 +18,8 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const orgs = require('./organizationService');
+const { hasColumn } = require('./schemaFeatures');
+const { normalizeBranding } = require('./organizationBranding');
 
 /** The spaces a sign-in page can present. */
 const AUDIENCES = ['platform', 'exam', 'student', 'teacher', 'company_learner', 'company_manager'];
@@ -29,9 +31,13 @@ const AUDIENCES = ['platform', 'exam', 'student', 'teacher', 'company_learner', 
  */
 async function presentationFor(db, email) {
     const companies = await orgs.ready(db).catch(() => false);
+    const hasBranding = companies && await hasColumn(db, 'organizations', 'portal_branding').catch(() => false);
+    const orgCols = hasBranding
+        ? `o.id AS org_id, o.name, o.display_name, o.slug, o.default_language, o.logo_file_id, o.logo_updated_at, o.cover_file_id, o.cover_updated_at, o.portal_branding`
+        : `o.id AS org_id, o.name, o.display_name, o.slug, o.default_language, o.logo_file_id, o.logo_updated_at`;
     const row = await db.get(
         companies
-            ? `SELECT u.role, o.id AS org_id, o.name, o.display_name, o.slug, o.default_language, o.logo_file_id, o.logo_updated_at
+            ? `SELECT u.role, ${orgCols}
                  FROM users u LEFT JOIN organizations o ON o.id = u.organization_id
                 WHERE u.email = $1 LIMIT 1`
             : `SELECT u.role FROM users u WHERE u.email = $1 LIMIT 1`,
@@ -44,6 +50,8 @@ async function presentationFor(db, email) {
         slug: row.slug,
         default_language: row.default_language,
         logo_url: row.logo_file_id ? `/api/public/org/${encodeURIComponent(row.slug)}/logo?v=${new Date(row.logo_updated_at || 0).getTime()}` : null,
+        cover_url: row.cover_file_id ? `/api/public/org/${encodeURIComponent(row.slug)}/cover?v=${new Date(row.cover_updated_at || 0).getTime()}` : null,
+        branding: normalizeBranding(row.portal_branding),
     });
     switch (row.role) {
         case 'org_admin': return row.org_id ? { audience: 'company_manager', company: company() } : { audience: 'platform' };

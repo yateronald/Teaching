@@ -94,21 +94,40 @@ router.get('/activity', async (req, res) => {
 
 router.put('/settings', writable, async (req, res) => {
     try {
+        const { validateBrandingPatch } = require('../services/organizationBranding');
+        const { hasColumn } = require('../services/schemaFeatures');
         const body = req.body || {};
         const sets = [];
         const params = [req.org.id];
+        let basicChanged = false;
+        let brandingChanged = false;
         if ('display_name' in body) {
             const dn = String(body.display_name ?? '').trim().replace(/\s+/g, ' ');
             if (dn.length > 160) throw new OrgError('NAME_TOO_LONG', 'The displayed name is limited to 160 characters.');
             params.push(dn || null); sets.push(`display_name = $${params.length}`);
+            basicChanged = true;
         }
         if ('default_language' in body) {
             if (!['fr', 'en'].includes(body.default_language)) throw new OrgError('BAD_LANGUAGE', 'The language must be French or English.');
             params.push(body.default_language); sets.push(`default_language = $${params.length}`);
+            basicChanged = true;
+        }
+        if ('portal_branding' in body) {
+            if (!(await hasColumn(req.db, 'organizations', 'portal_branding').catch(() => false))) {
+                throw new OrgError('MIGRATION_PENDING', 'Portal branding requires migration 037.', 503);
+            }
+            const nextBranding = validateBrandingPatch(body.portal_branding, { current: req.org.portal_branding, allowAdminFields: false });
+            params.push(JSON.stringify(nextBranding)); sets.push(`portal_branding = $${params.length}::jsonb`);
+            brandingChanged = true;
         }
         if (!sets.length) throw new OrgError('NOTHING_TO_UPDATE', 'Nothing to update.');
         const updated = await req.db.get(`UPDATE organizations SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`, params);
-        await orgs.audit(req.db, req.org.id, req.user.id, 'settings_changed', { display_name: updated.display_name, default_language: updated.default_language });
+        if (basicChanged) {
+            await orgs.audit(req.db, req.org.id, req.user.id, 'settings_changed', { display_name: updated.display_name, default_language: updated.default_language });
+        }
+        if (brandingChanged) {
+            await orgs.audit(req.db, req.org.id, req.user.id, 'branding_changed');
+        }
         res.json(await queries.describe(req.db, updated));
     } catch (err) { sendError(res, err, 'PUT /org/settings'); }
 });
@@ -130,6 +149,25 @@ router.delete('/logo', writable, async (req, res) => {
         await orgs.audit(req.db, req.org.id, req.user.id, 'logo_removed');
         res.json(orgs.brandOf(await req.db.get('SELECT * FROM organizations WHERE id = $1', [req.org.id])));
     } catch (err) { sendError(res, err, 'DELETE /org/logo'); }
+});
+
+router.post('/cover', writable, logos.receiveCover, async (req, res) => {
+    try {
+        await logos.saveCover(req.db, req.org, req.file);
+        await orgs.audit(req.db, req.org.id, req.user.id, 'cover_changed');
+        res.json(orgs.brandOf(await req.db.get('SELECT * FROM organizations WHERE id = $1', [req.org.id])));
+    } catch (err) {
+        logos.cleanup(req.file);
+        sendError(res, err, 'POST /org/cover');
+    }
+});
+
+router.delete('/cover', writable, async (req, res) => {
+    try {
+        await logos.removeCover(req.db, req.org);
+        await orgs.audit(req.db, req.org.id, req.user.id, 'cover_removed');
+        res.json(orgs.brandOf(await req.db.get('SELECT * FROM organizations WHERE id = $1', [req.org.id])));
+    } catch (err) { sendError(res, err, 'DELETE /org/cover'); }
 });
 
 // ── Learners ───────────────────────────────────────────────────────────────

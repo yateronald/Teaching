@@ -239,19 +239,23 @@ const companyLogo = (org) => (org.logo_file_id
 /** The company's branded sign-in page. */
 const companyLoginUrl = (org) => `${APP_BASE}/o/${encodeURIComponent(org.slug)}`;
 
+const { normalizeBranding } = require('../services/organizationBranding');
+
 async function sendCompanyInvite({ to, kind, name, tempPassword, org }) {
+    const branding = normalizeBranding(org.portal_branding);
     const { subject, html, text } = buildCompanyInviteTemplate({
         lang: org.default_language, kind, name, email: to, tempPassword,
         orgName: org.display_name || org.name, accessEndsAt: org.access_ends_at,
-        loginUrl: companyLoginUrl(org), logoUrl: companyLogo(org),
+        loginUrl: companyLoginUrl(org), logoUrl: companyLogo(org), branding,
     });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }
 
 async function sendCompanyExpiryNotice({ to, name, org, daysLeft, lang }) {
+    const branding = normalizeBranding(org.portal_branding);
     const { subject, html, text } = buildCompanyExpiryTemplate({
         lang: lang || org.default_language, name, orgName: org.display_name || org.name,
-        accessEndsAt: org.access_ends_at, daysLeft, appUrl: companyLoginUrl(org), logoUrl: companyLogo(org),
+        accessEndsAt: org.access_ends_at, daysLeft, appUrl: companyLoginUrl(org), logoUrl: companyLogo(org), branding,
     });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }

@@ -29,6 +29,8 @@ const orgs = require('../services/organizationService');
 const accounts = require('../services/organizationAccounts');
 const queries = require('../services/organizationQueries');
 const logos = require('../services/organizationLogo');
+const { validateBrandingPatch, validateSlug } = require('../services/organizationBranding');
+const { hasColumn } = require('../services/schemaFeatures');
 
 const router = express.Router();
 router.use(authenticateToken, adminOnly);
@@ -151,6 +153,18 @@ router.post('/', logos.receive, async (req, res) => {
             if (!body || typeof body !== 'object' || Array.isArray(body)) throw new OrgError('BAD_COMPANY', 'The company details could not be read.');
         }
         const fields = readFields(body, { creating: true });
+        if ('slug' in body && body.slug !== null && String(body.slug).trim() !== '') {
+            const customSlug = validateSlug(body.slug);
+            const taken = await req.db.get('SELECT id FROM organizations WHERE lower(slug) = lower($1)', [customSlug]);
+            if (taken) throw new OrgError('SLUG_TAKEN', 'Another company already uses this portal URL.', 409);
+            fields.slug = customSlug;
+        }
+        const hasBrandingCol = await hasColumn(req.db, 'organizations', 'portal_branding').catch(() => false);
+        let brandingObj = null;
+        if ('portal_branding' in body && body.portal_branding != null) {
+            if (!hasBrandingCol) throw new OrgError('MIGRATION_PENDING', 'Portal branding requires migration 037.', 503);
+            brandingObj = validateBrandingPatch(body.portal_branding, { current: {}, allowAdminFields: true });
+        }
         const content = await readContent(req.db, body.content || []);
         if (!content.length) throw new OrgError('BAD_CONTENT', 'Give the company at least one exam to use.');
         const ee = credit(body.ee_credits);
@@ -160,12 +174,18 @@ router.post('/', logos.receive, async (req, res) => {
             throw new OrgError('EMAIL_TAKEN', 'An account already uses the manager’s email address.', 409);
         }
 
-        const slug = await orgs.freeSlug(req.db, fields.display_name || fields.name);
+        const slug = fields.slug || await orgs.freeSlug(req.db, fields.display_name || fields.name);
         created = await req.db.get(
-            `INSERT INTO organizations (name, display_name, slug, default_language, access_starts_at, access_ends_at, seat_limit, notes, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-            [fields.name, fields.display_name || null, slug, fields.default_language, fields.access_starts_at, fields.access_ends_at,
-                fields.seat_limit, fields.notes ?? null, req.user.id]
+            hasBrandingCol && brandingObj
+                ? `INSERT INTO organizations (name, display_name, slug, default_language, access_starts_at, access_ends_at, seat_limit, notes, created_by, portal_branding)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb) RETURNING *`
+                : `INSERT INTO organizations (name, display_name, slug, default_language, access_starts_at, access_ends_at, seat_limit, notes, created_by)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+            hasBrandingCol && brandingObj
+                ? [fields.name, fields.display_name || null, slug, fields.default_language, fields.access_starts_at, fields.access_ends_at,
+                    fields.seat_limit, fields.notes ?? null, req.user.id, JSON.stringify(brandingObj)]
+                : [fields.name, fields.display_name || null, slug, fields.default_language, fields.access_starts_at, fields.access_ends_at,
+                    fields.seat_limit, fields.notes ?? null, req.user.id]
         );
         await replaceContent(req.db, created.id, content);
         if (ee || eo) await orgs.adjustReserve(req.db, created.id, 'grant', { ee, eo }, req.user.id, 'Initial credits');
@@ -207,19 +227,37 @@ router.get('/:id', async (req, res) => {
 const CHANGE_GROUPS = [
     ['dates_changed', ['access_starts_at', 'access_ends_at']],
     ['package_changed', ['seat_limit']],
-    ['company_updated', ['name', 'display_name', 'default_language', 'notes']],
+    ['company_updated', ['name', 'display_name', 'slug', 'default_language', 'notes']],
 ];
 const auditValue = (v) => (v instanceof Date ? v.toISOString() : v ?? null);
 
 router.put('/:id', async (req, res) => {
     try {
         const org = await loadOrg(req);
-        const fields = readFields(req.body || {}, { current: org });
+        const body = req.body || {};
+        const fields = readFields(body, { current: org });
+        if ('slug' in body) {
+            const nextSlug = validateSlug(body.slug);
+            if (nextSlug.toLowerCase() !== String(org.slug || '').toLowerCase()) {
+                const taken = await req.db.get('SELECT id FROM organizations WHERE lower(slug) = lower($1) AND id <> $2', [nextSlug, org.id]);
+                if (taken) throw new OrgError('SLUG_TAKEN', 'Another company already uses this portal URL.', 409);
+            }
+            fields.slug = nextSlug;
+        }
+        let brandingChanged = false;
+        if ('portal_branding' in body) {
+            if (!(await hasColumn(req.db, 'organizations', 'portal_branding').catch(() => false))) {
+                throw new OrgError('MIGRATION_PENDING', 'Portal branding requires migration 037.', 503);
+            }
+            const nextBranding = validateBrandingPatch(body.portal_branding, { current: org.portal_branding, allowAdminFields: true });
+            fields.portal_branding = JSON.stringify(nextBranding);
+            brandingChanged = JSON.stringify(org.portal_branding || {}) !== JSON.stringify(nextBranding);
+        }
         const keys = Object.keys(fields);
         if (!keys.length) throw new OrgError('NOTHING_TO_UPDATE', 'Nothing to update.');
         // Why (a renewed contract, an invoice…): kept with the entry for the record.
         const note = req.body?.note ? String(req.body.note).trim().slice(0, 500) || null : null;
-        const sets = keys.map((k, i) => `${k} = $${i + 2}`);
+        const sets = keys.map((k, i) => `${k} = $${i + 2}${k === 'portal_branding' ? '::jsonb' : ''}`);
         // The previous values are read, locked and replaced in one statement, so
         // the trail shows exactly what this change replaced.
         const row = await req.db.get(
@@ -243,6 +281,9 @@ router.put('/:id', async (req, res) => {
                 if (!same) changes[k] = { from: before, to: after };
             }
             if (Object.keys(changes).length) await orgs.audit(req.db, org.id, req.user.id, action, { ...changes, ...(note ? { note } : {}) });
+        }
+        if (brandingChanged) {
+            await orgs.audit(req.db, org.id, req.user.id, 'branding_changed', { ...(note ? { note } : {}) });
         }
         const updated = await req.db.get('SELECT * FROM organizations WHERE id = $1', [org.id]);
         res.json(await queries.describe(req.db, updated));
@@ -287,6 +328,7 @@ router.delete('/:id', async (req, res) => {
             throw new OrgError('HAS_ACCOUNTS', `This company still has ${people.n} account${people.n > 1 ? 's' : ''} (${counts.learners} learners). Suspend it instead, or remove its accounts first.`, 409);
         }
         if (org.logo_file_id) await logos.removeLogo(req.db, org).catch(() => {});
+        if (org.cover_file_id) await logos.deleteStoredLogo(org.cover_file_id).catch(() => {});
         await req.db.run('DELETE FROM organizations WHERE id = $1', [org.id]);
         res.json({ deleted: true });
     } catch (err) { sendError(res, err, 'DELETE /admin/organizations/:id'); }
@@ -417,6 +459,27 @@ router.delete('/:id/logo', async (req, res) => {
         await orgs.audit(req.db, org.id, req.user.id, 'logo_removed');
         res.json({ removed: true });
     } catch (err) { sendError(res, err, 'DELETE /admin/organizations/:id/logo'); }
+});
+
+router.post('/:id/cover', logos.receiveCover, async (req, res) => {
+    try {
+        const org = await loadOrg(req);
+        const updated = await logos.saveCover(req.db, org, req.file);
+        await orgs.audit(req.db, org.id, req.user.id, 'cover_changed');
+        res.json(orgs.brandOf(updated));
+    } catch (err) {
+        logos.cleanup(req.file);
+        sendError(res, err, 'POST /admin/organizations/:id/cover');
+    }
+});
+
+router.delete('/:id/cover', async (req, res) => {
+    try {
+        const org = await loadOrg(req);
+        await logos.removeCover(req.db, org);
+        await orgs.audit(req.db, org.id, req.user.id, 'cover_removed');
+        res.json(orgs.brandOf(await loadOrg(req)));
+    } catch (err) { sendError(res, err, 'DELETE /admin/organizations/:id/cover'); }
 });
 
 /**

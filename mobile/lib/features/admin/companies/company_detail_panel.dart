@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
@@ -12,6 +13,7 @@ import 'company_editor_panel.dart';
 import 'company_model.dart';
 import 'company_history.dart';
 import 'content_picker.dart';
+import 'portal_branding_panel.dart';
 
 /// Everything about one company: access, package, credits, allowed exams,
 /// managers, learners, logo, credit history and activity.
@@ -274,6 +276,35 @@ class _CompanyDetailPanelState extends ConsumerState<CompanyDetailPanel> {
     await _run(() => ref.read(apiClientProvider).delete('$_base/logo'), done: fr ? 'Logo supprimé' : 'Logo removed');
   }
 
+  Future<void> _uploadCover() async {
+    final fr = context.isFrench;
+    final res = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['png', 'jpg', 'jpeg', 'webp']);
+    final f = res?.files.single;
+    if (f == null || f.path == null || !mounted) return;
+    if (f.size > 2 * 1024 * 1024) {
+      adminToast(context, fr ? 'L’image de couverture doit faire 2 Mo au plus.' : 'The cover image must be 2 MB or less.', error: true);
+      return;
+    }
+    await _run(
+      () async => ref.read(apiClientProvider).post('$_base/cover', data: FormData.fromMap({'cover': await MultipartFile.fromFile(f.path!, filename: f.name)})),
+      done: fr ? 'Couverture mise à jour' : 'Cover image updated',
+    );
+  }
+
+  Future<void> _removeCover() async {
+    final fr = context.isFrench;
+    final ok = await confirmAdmin(context, title: fr ? 'Supprimer l’image de couverture ?' : 'Remove the cover image?', message: fr ? 'L’arrière-plan repassera en mode géométrique.' : 'The backdrop will revert to geometric style.', confirmLabel: fr ? 'Supprimer' : 'Remove');
+    if (!ok || !mounted) return;
+    await _run(() => ref.read(apiClientProvider).delete('$_base/cover'), done: fr ? 'Couverture supprimée' : 'Cover removed');
+  }
+
+  Future<void> _openBranding() async {
+    final c = _c;
+    if (c == null) return;
+    final saved = await showAdminPanel<bool>(context, tabletWidth: 680, builder: (_) => PortalBrandingPanel(company: c));
+    if (saved == true && mounted) await _load();
+  }
+
   // ── Layout ──────────────────────────────────────────────────────────────
 
   @override
@@ -304,6 +335,7 @@ class _CompanyDetailPanelState extends ConsumerState<CompanyDetailPanel> {
           AdminButton(fr ? 'Prolonger l’accès' : 'Extend access', key: const Key('company-extend'), icon: Icons.event_repeat, onPressed: _busy ? null : _extend),
           AdminButton(fr ? 'Crédits' : 'Credits', key: const Key('company-credits'), icon: Icons.bolt, primary: false, onPressed: _busy ? null : _credits),
           AdminButton(fr ? 'Modifier' : 'Edit', key: const Key('company-edit'), icon: Icons.edit_outlined, primary: false, onPressed: _busy ? null : _edit),
+          AdminButton(fr ? 'Portail & Marque' : 'Portal & Branding', key: const Key('company-branding'), icon: Icons.palette_outlined, primary: false, onPressed: _busy ? null : _openBranding),
           AdminButton(
             c.isSuspended ? (fr ? 'Réactiver' : 'Reactivate') : (fr ? 'Désactiver' : 'Disable'),
             key: const Key('company-status'),
@@ -359,21 +391,52 @@ class _CompanyDetailPanelState extends ConsumerState<CompanyDetailPanel> {
               child: AdminLink(fr ? 'Voir les ${_learners.length}' : 'See all ${_learners.length}', onTap: () => setState(() => _allLearners = true)),
             ),
         ])),
-        PanelSection(fr ? 'Logo' : 'Logo'),
-        _box(Row(children: [
-          CompanyLogo(company: c, size: 52),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              fr ? 'PNG, JPEG ou WebP, 1 Mo au plus. Affiché sur sa page de connexion, dans son espace et ses e-mails.' : 'PNG, JPEG or WebP, 1 MB at most. Shown on its sign-in page, in its space and in its emails.',
-              style: AppTypography.caption.copyWith(color: AppColors.textMuted),
-            ),
-          ),
-        ])),
+        PanelSection(
+          fr ? 'Portail & Identité' : 'Portal & Branding',
+          trailing: AdminLink(fr ? 'Personnaliser' : 'Customize', onTap: _busy ? () {} : _openBranding),
+        ),
+        _box(Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              CompanyLogo(company: c, size: 52),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Container(width: 14, height: 14, decoration: BoxDecoration(color: parseHexColor(c.branding.primaryColor), shape: BoxShape.circle, border: Border.all(color: Colors.black12))),
+                        Container(width: 14, height: 14, decoration: BoxDecoration(color: parseHexColor(c.branding.secondaryColor, const Color(0xFF0F766E)), shape: BoxShape.circle, border: Border.all(color: Colors.black12))),
+                        Pill('${c.branding.loginLayout.toUpperCase()} · ${c.branding.heroStyle}', color: AppColors.textMuted),
+                        if (c.branding.hidePoweredBy) Pill(fr ? 'Marque blanche' : 'White-label', color: AppColors.good),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      c.branding.tagline.isNotEmpty
+                          ? c.branding.tagline
+                          : (fr ? 'Personnalisez les couleurs, la couverture, la mise en page et l’aperçu en direct.' : 'Customize theme colors, cover image, layout and live sign-in preview.'),
+                      style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ]),
+          ],
+        )),
         const SizedBox(height: 8),
         Wrap(spacing: 8, runSpacing: 8, children: [
-          AdminButton(c.logoUrl == null ? (fr ? 'Ajouter un logo' : 'Add a logo') : (fr ? 'Changer' : 'Change'), icon: Icons.image_outlined, primary: false, onPressed: _busy ? null : _uploadLogo),
-          if (c.logoUrl != null) AdminButton(fr ? 'Supprimer' : 'Remove', icon: Icons.delete_outline, primary: false, danger: true, onPressed: _busy ? null : _removeLogo),
+          AdminButton(fr ? 'Personnaliser & Aperçu' : 'Customize & Preview', icon: Icons.palette_outlined, onPressed: _busy ? null : _openBranding),
+          AdminButton(fr ? 'Ouvrir en direct' : 'Open live', icon: Icons.open_in_new, primary: false, onPressed: () => launchUrl(Uri.parse(c.signInAddress), mode: LaunchMode.externalApplication)),
+          AdminButton(c.logoUrl == null ? (fr ? 'Ajouter un logo' : 'Add a logo') : (fr ? 'Changer logo' : 'Change logo'), icon: Icons.image_outlined, primary: false, onPressed: _busy ? null : _uploadLogo),
+          if (c.logoUrl != null) AdminButton(fr ? 'Supprimer logo' : 'Remove logo', icon: Icons.delete_outline, primary: false, danger: true, onPressed: _busy ? null : _removeLogo),
+          AdminButton(c.coverUrl == null ? (fr ? 'Ajouter couverture' : 'Add cover') : (fr ? 'Changer couverture' : 'Change cover'), icon: Icons.panorama_outlined, primary: false, onPressed: _busy ? null : _uploadCover),
+          if (c.coverUrl != null) AdminButton(fr ? 'Supprimer couverture' : 'Remove cover', icon: Icons.delete_outline, primary: false, danger: true, onPressed: _busy ? null : _removeCover),
         ]),
         PanelSection(fr ? 'Mouvements de crédits' : 'Credit history'),
         _box(Column(children: [

@@ -282,12 +282,42 @@ function formatRecipientTime(when, tz, opts = {}) {
 /**
  * Master mobile-responsive editorial HTML email wrapper.
  */
-function baseHtml({ subject, preheader, eyebrow, title, bodyHtml, logo = null, logoAlt = null, lang = 'en' }) {
+function baseHtml({
+    subject,
+    preheader,
+    eyebrow,
+    title,
+    bodyHtml,
+    logo = null,
+    logoAlt = null,
+    lang = 'en',
+    accentColor = null,
+    siteUrl = null,
+    supportEmail = null,
+    footerText = null,
+    whiteLabel = false,
+    tagline = null,
+}) {
     const logoUrl = logo || getLogoUrl();
-    const supportEmail = getSupportEmail();
+    const safeAccent = typeof accentColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(accentColor) ? accentColor : BRAND.primary;
+    const resolvedSupport = whiteLabel ? (supportEmail || null) : (supportEmail || getSupportEmail());
     const year = new Date().getFullYear();
     const fr = lang === 'fr';
-    const siteUrl = (process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '');
+    const defaultSiteUrl = (process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '');
+    const resolvedSiteUrl = typeof siteUrl === 'string' && /^https?:\/\//i.test(siteUrl) ? siteUrl : defaultSiteUrl;
+    const resolvedFooter = footerText
+        ? escapeHtml(footerText)
+        : whiteLabel && logoAlt
+            ? `© ${year} ${escapeHtml(logoAlt)}.`
+            : `© ${year} Learn French with Natives. ${fr ? 'Tous droits réservés.' : 'All rights reserved.'}`;
+
+    const topHairline = whiteLabel
+        ? `<tr><td height="4" style="background-color: ${safeAccent}; font-size: 0; line-height: 0;">&nbsp;</td></tr>`
+        : `<tr>
+                  <td width="34%" height="3" style="background-color: ${BRAND.primary}; font-size: 0; line-height: 0;">&nbsp;</td>
+                  <td width="33%" height="3" style="background-color: #ffffff; font-size: 0; line-height: 0;">&nbsp;</td>
+                  <td width="33%" height="3" style="background-color: ${BRAND.accentRed}; font-size: 0; line-height: 0;">&nbsp;</td>
+                </tr>`;
 
     return `<!DOCTYPE html>
 <html lang="${fr ? 'fr' : 'en'}" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
@@ -328,15 +358,11 @@ function baseHtml({ subject, preheader, eyebrow, title, bodyHtml, logo = null, l
         <table width="100%" class="email-container" cellspacing="0" cellpadding="0" border="0" role="presentation"
           style="width: 100%; max-width: 580px; margin: 0 auto; background-color: ${BRAND.surface}; border-radius: 12px; overflow: hidden; border: 1px solid ${BRAND.border};">
 
-          <!-- French tricolor top hairline -->
+          <!-- Top brand hairline -->
           <tr>
             <td style="padding: 0; line-height: 0; font-size: 0;">
               <table width="100%" cellspacing="0" cellpadding="0" border="0" role="presentation">
-                <tr>
-                  <td width="34%" height="3" style="background-color: ${BRAND.primary}; font-size: 0; line-height: 0;">&nbsp;</td>
-                  <td width="33%" height="3" style="background-color: #ffffff; font-size: 0; line-height: 0;">&nbsp;</td>
-                  <td width="33%" height="3" style="background-color: ${BRAND.accentRed}; font-size: 0; line-height: 0;">&nbsp;</td>
-                </tr>
+                ${topHairline}
               </table>
             </td>
           </tr>
@@ -347,21 +373,25 @@ function baseHtml({ subject, preheader, eyebrow, title, bodyHtml, logo = null, l
               <table cellspacing="0" cellpadding="0" border="0" role="presentation" style="margin-bottom: 22px;">
                 <tr>
                   <td style="vertical-align: middle; padding-right: 11px;">
-                    <a href="${siteUrl}" target="_blank" style="text-decoration: none;">
-                      <img src="${logoUrl}" alt="${escapeHtml(logoAlt || 'Learn French with Natives')}" width="36" height="36" style="display: block; width: 36px; height: 36px; border-radius: 50%;" />
+                    <a href="${escapeHtml(resolvedSiteUrl)}" target="_blank" style="text-decoration: none;">
+                      <img src="${logoUrl}" alt="${escapeHtml(logoAlt || 'Learn French with Natives')}" width="36" height="36" style="display: block; width: 36px; height: 36px; border-radius: ${whiteLabel ? '8px' : '50%'}; object-fit: contain;" />
                     </a>
                   </td>
                   <td style="vertical-align: middle;">
-                    <a href="${siteUrl}" target="_blank" style="text-decoration: none; color: ${BRAND.text};">
+                    <a href="${escapeHtml(resolvedSiteUrl)}" target="_blank" style="text-decoration: none; color: ${BRAND.text};">
                       <div style="font-size: 15px; font-weight: 800; color: ${BRAND.text}; letter-spacing: -0.25px; line-height: 1.15; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
                         ${escapeHtml(logoAlt || 'Learn French')}
                       </div>
-                      ${!logoAlt ? `<div style="font-size: 11.5px; font-weight: 600; color: ${BRAND.accentRed}; line-height: 1.2; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">with Natives</div>` : ''}
+                      ${!logoAlt
+                          ? `<div style="font-size: 11.5px; font-weight: 600; color: ${BRAND.accentRed}; line-height: 1.2; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">with Natives</div>`
+                          : tagline
+                              ? `<div style="font-size: 11.5px; font-weight: 600; color: ${BRAND.textMuted}; line-height: 1.25; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">${escapeHtml(tagline)}</div>`
+                              : ''}
                     </a>
                   </td>
                 </tr>
               </table>
-              ${eyebrow ? `<div style="font-size: 11px; font-weight: 700; color: ${BRAND.primary}; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">${escapeHtml(eyebrow)}</div>` : ''}
+              ${eyebrow ? `<div style="font-size: 11px; font-weight: 700; color: ${safeAccent}; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">${escapeHtml(eyebrow)}</div>` : ''}
               <h1 class="email-h1" style="margin: 0; font-size: 22px; font-weight: 800; color: ${BRAND.text}; letter-spacing: -0.4px; line-height: 1.3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
                 ${escapeHtml(title)}
               </h1>
@@ -380,15 +410,15 @@ function baseHtml({ subject, preheader, eyebrow, title, bodyHtml, logo = null, l
           <tr>
             <td class="email-footer" style="padding: 20px 36px 24px; background-color: ${BRAND.cardBg}; border-top: 1px solid ${BRAND.border};">
               <table width="100%" cellspacing="0" cellpadding="0" border="0" role="presentation">
-                <tr>
+                ${resolvedSupport ? `<tr>
                   <td align="left" style="font-size: 12.5px; color: ${BRAND.textMuted}; line-height: 1.6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-                    ${fr ? 'Besoin d\'aide ? Répondez directement à cet email ou écrivez à' : 'Questions or need to reschedule? Reply to this email or write to'}
-                    <a href="mailto:${escapeHtml(supportEmail)}" style="color: ${BRAND.primary}; text-decoration: none; font-weight: 600;">${escapeHtml(supportEmail)}</a>.
+                    ${fr ? 'Besoin d\'aide ? Répondez directement à cet email ou écrivez à' : 'Questions or need help? Reply to this email or write to'}
+                    <a href="mailto:${escapeHtml(resolvedSupport)}" style="color: ${safeAccent}; text-decoration: none; font-weight: 600;">${escapeHtml(resolvedSupport)}</a>.
                   </td>
-                </tr>
+                </tr>` : ''}
                 <tr>
-                  <td align="left" style="font-size: 11px; color: ${BRAND.textLight}; padding-top: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-                    © ${year} Learn French with Natives. ${fr ? 'Tous droits réservés.' : 'All rights reserved.'}
+                  <td align="left" style="font-size: 11px; color: ${BRAND.textLight}; ${resolvedSupport ? 'padding-top: 8px;' : ''} font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                    ${resolvedFooter}
                   </td>
                 </tr>
               </table>

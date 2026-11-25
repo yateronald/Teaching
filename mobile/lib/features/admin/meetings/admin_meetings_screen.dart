@@ -6,9 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../../core/api/api_client.dart';
+import '../../../core/auth/auth_notifier.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/localization/translations.dart';
+import '../../../core/utils/schedule_timezone.dart';
+import '../../../core/widgets/timezone_picker_field.dart';
 import '../../teacher/meetings/screens/pre_join_screen.dart';
 import '../../teacher/meetings/widgets/meeting_attendance_sheet.dart';
 import '../../teacher/meetings/widgets/meeting_share_sheet.dart';
@@ -367,10 +370,26 @@ class _AdminCreateMeetingPanelState extends ConsumerState<_AdminCreateMeetingPan
   bool _isPublic = true;
   bool _requireApproval = true;
   int? _batchId;
-  DateTime _start = DateTime.now().add(const Duration(hours: 1));
-  DateTime _end = DateTime.now().add(const Duration(hours: 2));
+  late String _tz;
+  late DateTime _start;
+  late DateTime _end;
   bool _saving = false;
   String? _error;
+
+  String? get _profileTz {
+    if (!ref.exists(authNotifierProvider)) return null;
+    final raw = J.s(ref.read(authNotifierProvider).user?.timezone).trim();
+    return ScheduleTz.isValid(raw) ? raw : null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _tz = ScheduleTz.defaultZone(_profileTz);
+    final baseUtc = DateTime.now().toUtc().add(const Duration(hours: 1));
+    _start = ScheduleTz.utcToWallClock(baseUtc, _tz);
+    _end = _start.add(const Duration(hours: 1));
+  }
 
   @override
   void dispose() {
@@ -382,7 +401,13 @@ class _AdminCreateMeetingPanelState extends ConsumerState<_AdminCreateMeetingPan
 
   Future<void> _pick(bool isStart) async {
     final base = isStart ? _start : _end;
-    final d = await showDatePicker(context: context, initialDate: base, firstDate: DateTime.now().subtract(const Duration(days: 1)), lastDate: DateTime.now().add(const Duration(days: 365)));
+    final nowWall = ScheduleTz.utcToWallClock(DateTime.now().toUtc(), _tz);
+    final d = await showDatePicker(
+      context: context,
+      initialDate: base,
+      firstDate: nowWall.subtract(const Duration(days: 1)),
+      lastDate: nowWall.add(const Duration(days: 365)),
+    );
     if (d == null || !mounted) return;
     final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(base));
     if (t == null) return;
@@ -407,13 +432,20 @@ class _AdminCreateMeetingPanelState extends ConsumerState<_AdminCreateMeetingPan
       setState(() => _error = fr ? 'Choisissez une promotion.' : 'Select a batch.');
       return;
     }
+    final startUtc = ScheduleTz.wallClockToUtc(_start, _tz);
+    final endUtc = ScheduleTz.wallClockToUtc(_end, _tz);
+    if (!endUtc.isAfter(startUtc)) {
+      setState(() => _error = fr ? 'La fin doit suivre le début.' : 'End time must be after start time.');
+      return;
+    }
     setState(() { _saving = true; _error = null; });
     try {
       final res = await ref.read(apiClientProvider).post('/meetings', data: {
         'title': _title.text.trim(),
         'description': _desc.text.trim().isEmpty ? null : _desc.text.trim(),
-        'scheduled_start': _start.toUtc().toIso8601String(),
-        'scheduled_end': _end.toUtc().toIso8601String(),
+        'scheduled_start': startUtc.toIso8601String(),
+        'scheduled_end': endUtc.toIso8601String(),
+        'host_timezone': _tz,
         if (_isPublic) ...{
           'is_public': true,
           'meeting_kind': 'admin',
@@ -433,6 +465,7 @@ class _AdminCreateMeetingPanelState extends ConsumerState<_AdminCreateMeetingPan
   Widget build(BuildContext context) {
     final fr = context.isFrench;
     final fmt = DateFormat('EEE d MMM · HH:mm');
+    final offset = ScheduleTz.offsetLabel(_tz);
     return AdminPanel(
       title: fr ? 'Nouvelle réunion' : 'New meeting',
       actions: [
@@ -478,18 +511,25 @@ class _AdminCreateMeetingPanelState extends ConsumerState<_AdminCreateMeetingPan
             options: [for (final b in widget.batches) FilterOption<int?>(J.i(b['id']), J.s(b['name']))],
             onChanged: (v) => setState(() => _batchId = v),
           ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
+        TimezonePickerField(
+          value: _tz,
+          label: fr ? 'Fuseau horaire' : 'Timezone',
+          profileZone: _profileTz,
+          onChanged: (v) => setState(() => _tz = v),
+        ),
+        const SizedBox(height: 10),
         ListTile(
           contentPadding: EdgeInsets.zero,
           title: Text(fr ? 'Début' : 'Start'),
-          subtitle: Text(fmt.format(_start)),
+          subtitle: Text('${fmt.format(_start)} ($offset)'),
           trailing: const Icon(Icons.edit_calendar_outlined),
           onTap: () => _pick(true),
         ),
         ListTile(
           contentPadding: EdgeInsets.zero,
           title: Text(fr ? 'Fin' : 'End'),
-          subtitle: Text(fmt.format(_end)),
+          subtitle: Text('${fmt.format(_end)} ($offset)'),
           trailing: const Icon(Icons.edit_calendar_outlined),
           onTap: () => _pick(false),
         ),

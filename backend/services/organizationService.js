@@ -51,6 +51,7 @@ const daysLeft = (org, now = Date.now()) =>
 /** What a signed-in manager or learner may know about their company. */
 function brandOf(org) {
     if (!org) return null;
+    const { normalizeBranding } = require('./organizationBranding');
     const state = stateOf(org);
     return {
         id: Number(org.id),
@@ -63,6 +64,8 @@ function brandOf(org) {
         days_left: state === 'active' ? daysLeft(org) : 0,
         expiring_soon: state === 'active' && daysLeft(org) <= EXPIRY_NOTICE_DAYS,
         logo_url: org.logo_file_id ? `/api/public/org/${encodeURIComponent(org.slug)}/logo?v=${new Date(org.logo_updated_at || 0).getTime()}` : null,
+        cover_url: org.cover_file_id ? `/api/public/org/${encodeURIComponent(org.slug)}/cover?v=${new Date(org.cover_updated_at || 0).getTime()}` : null,
+        branding: normalizeBranding(org.portal_branding),
     };
 }
 

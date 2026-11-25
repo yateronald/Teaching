@@ -12,6 +12,7 @@ import '../../../core/localization/translations.dart';
 import '../common/admin_kit.dart';
 import 'company_model.dart';
 import 'content_picker.dart';
+import 'portal_login_preview.dart';
 
 /// Creates a company with its first manager, or edits its details.
 /// Pops the saved company's id (creation) or true (edit).
@@ -37,13 +38,17 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
   final _first = TextEditingController();
   final _last = TextEditingController();
   final _email = TextEditingController();
+  final _slug = TextEditingController();
+  final _tagline = TextEditingController();
 
   late String _language = widget.company?.language ?? 'fr';
+  PortalBranding _branding = const PortalBranding();
   late DateTime _starts = widget.company?.startsAt ?? DateTime.now();
   late DateTime? _ends = widget.company?.endsAt ?? endOfDay(addMonths(DateTime.now(), 3));
   List<Map<String, dynamic>> _content = [];
   ({String name, Uint8List bytes})? _logo;
   bool _pickingLogo = false;
+  bool _portalExpanded = false;
   String? _logoError;
   bool _saving = false;
   String? _error;
@@ -58,7 +63,7 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
 
   @override
   void dispose() {
-    for (final c in [_name, _displayName, _seats, _notes, _ee, _eo, _first, _last, _email]) {
+    for (final c in [_name, _displayName, _seats, _notes, _ee, _eo, _first, _last, _email, _slug, _tagline]) {
       c.dispose();
     }
     super.dispose();
@@ -165,8 +170,11 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
         adminToast(context, fr ? 'Entreprise mise à jour' : 'Company updated');
         Navigator.of(context).pop(true);
       } else {
+        final slugText = _slug.text.trim().toLowerCase();
         final payload = {
           ...body,
+          if (slugText.isNotEmpty) 'slug': slugText,
+          'portal_branding': _branding.copyWith(tagline: _tagline.text.trim()).toJson(),
           'content': [for (final c in _content) {'content_type': c['content_type'], 'content_id': c['content_id']}],
           'ee_credits': int.tryParse(_ee.text.trim()) ?? 0,
           'eo_credits': int.tryParse(_eo.text.trim()) ?? 0,
@@ -386,6 +394,127 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
           ],
           PanelSection(fr ? 'Notes internes' : 'Internal notes'),
           AdminField(label: fr ? 'Notes (visibles des administrateurs seulement)' : 'Notes (administrators only)', controller: _notes, maxLines: 3),
+          if (!_editing) ...[
+            PanelSection(fr ? 'Portail & Identité' : 'Portal & Branding'),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.pureWhite,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: parseHexColor(_branding.primaryColor),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.black12),
+                        ),
+                      ),
+                      Text(
+                        '${_branding.loginLayout.toUpperCase()} · /o/${_slug.text.trim().isEmpty ? 'auto' : _slug.text.trim()}',
+                        style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                      TextButton.icon(
+                        key: const Key('company-portal-toggle'),
+                        onPressed: () => setState(() => _portalExpanded = !_portalExpanded),
+                        icon: Icon(_portalExpanded ? Icons.expand_less : Icons.palette_outlined, size: 17),
+                        label: Text(_portalExpanded ? (fr ? 'Masquer' : 'Hide') : (fr ? 'Personnaliser' : 'Customize')),
+                      ),
+                      TextButton.icon(
+                        key: const Key('company-preview-portal'),
+                        onPressed: () => showPortalPreviewDialog(
+                          context,
+                          companyName: _displayName.text.trim().isEmpty ? _name.text.trim() : _displayName.text.trim(),
+                          slug: _slug.text.trim().isEmpty ? 'company' : _slug.text.trim(),
+                          branding: _branding.copyWith(tagline: _tagline.text.trim()),
+                          logoBytes: _logo?.bytes,
+                          initialLanguage: _language,
+                        ),
+                        icon: const Icon(Icons.visibility_outlined, size: 17),
+                        label: Text(fr ? 'Aperçu' : 'Preview'),
+                      ),
+                    ],
+                  ),
+                  if (_portalExpanded) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _slug,
+                      maxLength: 80,
+                      onChanged: (v) {
+                        final clean = v.toLowerCase().replaceAll(RegExp(r'[^a-z0-9-]'), '');
+                        if (clean != v) {
+                          _slug.value = TextEditingValue(text: clean, selection: TextSelection.collapsed(offset: clean.length));
+                        }
+                        setState(() {});
+                      },
+                      decoration: adminInputDecoration(fr ? 'URL du portail (facultatif)' : 'Portal URL (optional)').copyWith(
+                        prefixText: '/o/',
+                        hintText: fr ? 'auto-selon-le-nom' : 'auto-from-name',
+                        counterText: '',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _tagline,
+                      maxLength: 80,
+                      decoration: adminInputDecoration(fr ? 'Sous-titre du portail (facultatif)' : 'Portal tagline (optional)').copyWith(
+                        hintText: fr ? 'ex. Académie de français' : 'e.g. Corporate French Academy',
+                        counterText: '',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final p in portalThemePresets)
+                          ChoiceChip(
+                            selected: _branding.primaryColor == p.primaryColor && _branding.secondaryColor == p.secondaryColor,
+                            onSelected: (_) => setState(() {
+                              _branding = _branding.copyWith(
+                                primaryColor: p.primaryColor,
+                                secondaryColor: p.secondaryColor,
+                                surfaceTone: p.surfaceTone,
+                                heroStyle: p.heroStyle,
+                              );
+                            }),
+                            avatar: CircleAvatar(backgroundColor: parseHexColor(p.primaryColor)),
+                            label: Text(fr ? p.nameFr : p.name),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    SegmentedButton<String>(
+                      showSelectedIcon: false,
+                      style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                      segments: [
+                        ButtonSegment(value: 'split', label: Text(fr ? 'Partagé' : 'Split', style: const TextStyle(fontSize: 12))),
+                        ButtonSegment(value: 'centered', label: Text(fr ? 'Centré' : 'Centered', style: const TextStyle(fontSize: 12))),
+                        ButtonSegment(value: 'minimal', label: const Text('Minimal', style: TextStyle(fontSize: 12))),
+                      ],
+                      selected: {_branding.loginLayout},
+                      onSelectionChanged: (s) => setState(() => _branding = _branding.copyWith(loginLayout: s.first)),
+                    ),
+                    const SizedBox(height: 6),
+                    _Hint(fr
+                        ? 'Vous pourrez personnaliser l’image de couverture et tous les textes juste après création.'
+                        : 'You can fine-tune cover photo and full copy right after creation.'),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

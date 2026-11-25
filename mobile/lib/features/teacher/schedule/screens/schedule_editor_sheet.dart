@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/api/api_client.dart';
+import '../../../../core/auth/auth_notifier.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_typography.dart';
 import '../../../../core/localization/translations.dart';
+import '../../../../core/utils/schedule_timezone.dart';
 import '../../../../core/widgets/custom_button.dart';
 import '../../../../core/widgets/custom_text_field.dart';
+import '../../../../core/widgets/timezone_picker_field.dart';
 
 /// Where a session happens. `inbuilt` is the app's own class room: the same
 /// meeting as one created in the Meetings tab (lobby, passcode, attendance,
@@ -48,6 +51,7 @@ class _ScheduleEditorSheetState extends ConsumerState<ScheduleEditorSheet> {
   SessionPlace? _originalPlace;
   String _status = 'scheduled';
 
+  late String _tz;
   DateTime _startDate = DateTime.now();
   TimeOfDay _startTime = const TimeOfDay(hour: 10, minute: 0);
   int _durationMinutes = 60;
@@ -58,9 +62,16 @@ class _ScheduleEditorSheetState extends ConsumerState<ScheduleEditorSheet> {
 
   bool get _isEdit => widget.existingItem?['id'] != null;
 
+  String? get _profileTz {
+    if (!ref.exists(authNotifierProvider)) return null;
+    final raw = ref.read(authNotifierProvider).user?.timezone?.trim() ?? '';
+    return ScheduleTz.isValid(raw) ? raw : null;
+  }
+
   @override
   void initState() {
     super.initState();
+    _tz = ScheduleTz.defaultZone(_profileTz);
     final it = widget.existingItem;
     if (it != null) {
       _titleCtrl.text = it['title'] ?? '';
@@ -78,22 +89,23 @@ class _ScheduleEditorSheetState extends ConsumerState<ScheduleEditorSheet> {
       _locationCtrl.text = location == '--' ? '' : location;
       if (it['meeting_id'] == null) _linkCtrl.text = it['link'] ?? '';
 
-      // The server sends UTC; the teacher edits in the phone's time.
-      final start = DateTime.tryParse('${it['start_time'] ?? it['start'] ?? ''}')?.toLocal();
-      final end = DateTime.tryParse('${it['end_time'] ?? it['end'] ?? ''}')?.toLocal();
-      if (start != null) {
-        _startDate = DateTime(start.year, start.month, start.day);
-        _startTime = TimeOfDay(hour: start.hour, minute: start.minute);
-        if (end != null && end.isAfter(start)) _durationMinutes = end.difference(start).inMinutes;
+      // The server sends UTC; convert to the selected timezone.
+      final startUtc = DateTime.tryParse('${it['start_time'] ?? it['start'] ?? ''}')?.toUtc();
+      final endUtc = DateTime.tryParse('${it['end_time'] ?? it['end'] ?? ''}')?.toUtc();
+      if (startUtc != null) {
+        final startWall = ScheduleTz.utcToWallClock(startUtc, _tz);
+        _startDate = DateTime(startWall.year, startWall.month, startWall.day);
+        _startTime = TimeOfDay(hour: startWall.hour, minute: startWall.minute);
+        if (endUtc != null && endUtc.isAfter(startUtc)) _durationMinutes = endUtc.difference(startUtc).inMinutes;
       }
     } else {
       if (widget.batches.length == 1) {
         _selectedBatchId = (widget.batches[0]['id'] as num).toInt();
       }
-      // Next quarter hour.
-      final now = DateTime.now().add(const Duration(minutes: 15));
-      _startDate = DateTime(now.year, now.month, now.day);
-      _startTime = TimeOfDay(hour: now.hour, minute: (now.minute ~/ 15) * 15);
+      // Next quarter hour in the selected timezone.
+      final nowWall = ScheduleTz.utcToWallClock(DateTime.now().toUtc().add(const Duration(minutes: 15)), _tz);
+      _startDate = DateTime(nowWall.year, nowWall.month, nowWall.day);
+      _startTime = TimeOfDay(hour: nowWall.hour, minute: (nowWall.minute ~/ 15) * 15);
     }
   }
 
@@ -135,9 +147,10 @@ class _ScheduleEditorSheetState extends ConsumerState<ScheduleEditorSheet> {
     } else if (_place == SessionPlace.physical && _locationCtrl.text.trim().isEmpty) {
       problem = isFr ? 'Indiquez la salle ou l\'adresse.' : 'Say where it takes place.';
     }
-    final start = DateTime(_startDate.year, _startDate.month, _startDate.day, _startTime.hour, _startTime.minute);
-    final end = start.add(Duration(minutes: _durationMinutes));
-    if (problem == null && !_isEdit && end.isBefore(DateTime.now())) {
+    final startWall = DateTime(_startDate.year, _startDate.month, _startDate.day, _startTime.hour, _startTime.minute);
+    final startUtc = ScheduleTz.wallClockToUtc(startWall, _tz);
+    final endUtc = startUtc.add(Duration(minutes: _durationMinutes));
+    if (problem == null && !_isEdit && endUtc.isBefore(DateTime.now().toUtc())) {
       problem = isFr ? 'Cette séance serait déjà terminée. Choisissez une heure à venir.' : 'That session would already be over. Pick a future time.';
     }
     if (problem != null) {
@@ -155,8 +168,9 @@ class _ScheduleEditorSheetState extends ConsumerState<ScheduleEditorSheet> {
       'description': _descCtrl.text.trim(),
       'batch_id': _selectedBatchId,
       // UTC with its zone, so the server stores the moment the teacher meant.
-      'start_time': start.toUtc().toIso8601String(),
-      'end_time': end.toUtc().toIso8601String(),
+      'start_time': startUtc.toIso8601String(),
+      'end_time': endUtc.toIso8601String(),
+      if (_place == SessionPlace.inbuilt) 'host_timezone': _tz,
       'type': _sessionType,
       if (_isEdit) 'status': _status,
       // An unchanged built-in class stays in its room.
@@ -341,6 +355,13 @@ class _ScheduleEditorSheetState extends ConsumerState<ScheduleEditorSheet> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 14),
+                  TimezonePickerField(
+                    value: _tz,
+                    label: isFr ? 'Fuseau horaire' : 'Timezone',
+                    profileZone: _profileTz,
+                    onChanged: (v) => setState(() => _tz = v),
                   ),
                   const SizedBox(height: 16),
                   _label(isFr ? 'Durée' : 'Length'),

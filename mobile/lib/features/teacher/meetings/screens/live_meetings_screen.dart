@@ -9,9 +9,11 @@ import '../../../../core/api/api_client.dart';
 import '../../../../core/auth/auth_notifier.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_typography.dart';
+import '../../../../core/utils/schedule_timezone.dart';
 import '../../../../core/widgets/custom_button.dart';
 import '../../../../core/widgets/custom_text_field.dart';
 import '../../../../core/widgets/empty_state.dart';
+import '../../../../core/widgets/timezone_picker_field.dart';
 import '../widgets/join_with_id_sheet.dart';
 import '../widgets/meeting_attendance_sheet.dart';
 import '../widgets/meeting_share_sheet.dart';
@@ -1528,8 +1530,11 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen>
     final titleCtrl = TextEditingController();
     final descCtrl = TextEditingController();
     int? batchId;
-    DateTime start = DateTime.now().add(const Duration(hours: 1));
-    DateTime end = DateTime.now().add(const Duration(hours: 2));
+    final profileTz = ref.exists(authProvider) ? ref.read(authProvider).user?.timezone : null;
+    String selectedTz = ScheduleTz.defaultZone(profileTz);
+    final baseUtc = DateTime.now().toUtc().add(const Duration(hours: 1));
+    DateTime start = ScheduleTz.utcToWallClock(baseUtc, selectedTz);
+    DateTime end = start.add(const Duration(hours: 1));
     bool submitting = false;
     String? formError;
 
@@ -1541,11 +1546,12 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen>
         builder: (sheetContext, setSheetState) {
           Future<void> pick({required bool isStart}) async {
             final base = isStart ? start : end;
+            final nowWall = ScheduleTz.utcToWallClock(DateTime.now().toUtc(), selectedTz);
             final date = await showDatePicker(
               context: sheetContext,
               initialDate: base,
-              firstDate: DateTime.now().subtract(const Duration(days: 1)),
-              lastDate: DateTime.now().add(const Duration(days: 365)),
+              firstDate: nowWall.subtract(const Duration(days: 1)),
+              lastDate: nowWall.add(const Duration(days: 365)),
               locale: const Locale('fr', 'FR'),
             );
             if (date == null) return;
@@ -1577,7 +1583,9 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen>
               setSheetState(() => formError = 'Choisissez une promotion.');
               return;
             }
-            if (!end.isAfter(start)) {
+            final startUtc = ScheduleTz.wallClockToUtc(start, selectedTz);
+            final endUtc = ScheduleTz.wallClockToUtc(end, selectedTz);
+            if (!endUtc.isAfter(startUtc)) {
               setSheetState(() => formError = 'La fin doit suivre le début.');
               return;
             }
@@ -1591,8 +1599,9 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen>
                 'title': titleCtrl.text.trim(),
                 'description': descCtrl.text.trim().isEmpty ? null : descCtrl.text.trim(),
                 'batch_id': batchId,
-                'scheduled_start': start.toUtc().toIso8601String(),
-                'scheduled_end': end.toUtc().toIso8601String(),
+                'scheduled_start': startUtc.toIso8601String(),
+                'scheduled_end': endUtc.toIso8601String(),
+                'host_timezone': selectedTz,
               });
               if (sheetContext.mounted) Navigator.pop(sheetContext);
               await _fetchMeetings();
@@ -1717,14 +1726,21 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen>
                           const SizedBox(height: 14),
                           Text('Horaire',
                               style: AppTypography.label.copyWith(fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 6),
-                          _timeField('Début', fmt.format(start), () => pick(isStart: true)),
                           const SizedBox(height: 8),
-                          _timeField('Fin', fmt.format(end), () => pick(isStart: false)),
+                          TimezonePickerField(
+                            value: selectedTz,
+                            label: 'Fuseau horaire',
+                            profileZone: profileTz,
+                            onChanged: (v) => setSheetState(() => selectedTz = v),
+                          ),
+                          const SizedBox(height: 10),
+                          _timeField('Début', '${fmt.format(start)} (${ScheduleTz.offsetLabel(selectedTz)})', () => pick(isStart: true)),
+                          const SizedBox(height: 8),
+                          _timeField('Fin', '${fmt.format(end)} (${ScheduleTz.offsetLabel(selectedTz)})', () => pick(isStart: false)),
                           const SizedBox(height: 14),
                           _sheetNote(
                             Icons.schedule,
-                            "Les horaires utilisent le fuseau de votre appareil. Chaque étudiant les voit dans le sien.",
+                            "Les horaires utilisent le fuseau $selectedTz (${ScheduleTz.offsetLabel(selectedTz)}). Chaque étudiant les voit dans le sien.",
                             AppColors.surfaceSoft,
                             AppColors.textMuted,
                           ),

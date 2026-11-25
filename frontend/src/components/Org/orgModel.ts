@@ -4,6 +4,7 @@
  * administrator's company pages and by the company's own space.
  */
 import type { Lang } from '../../utils/useTr';
+import type { PortalBranding } from '../../utils/portalTheme';
 import { familyOfCategory, familyOfType } from '../Admin/examAdminData';
 import type { Family } from '../Admin/examAdminData';
 
@@ -45,7 +46,7 @@ export interface Company {
   seats_used: number;
   seats_left: number;
   notes: string | null;
-  brand: { name: string; logo_url: string | null };
+  brand: { name: string; logo_url: string | null; cover_url?: string | null; branding?: PortalBranding };
   created_at: string;
   active_learners: number;
   learners: number;
@@ -192,6 +193,13 @@ export function errorText(err: unknown, tr: Tr): string {
     case 'NAME_REQUIRED': return tr('First name and last name are required.', 'Le prénom et le nom sont obligatoires.');
     case 'LOGO_TYPE': return tr('The logo must be a PNG, JPG or WebP image.', 'Le logo doit être une image PNG, JPG ou WebP.');
     case 'LOGO_TOO_BIG': return tr('The logo must be 1 MB or less.', 'Le logo doit faire 1 Mo au maximum.');
+    case 'COVER_TYPE': return tr('The cover image must be a PNG, JPG or WebP image.', 'L’image de couverture doit être une image PNG, JPG ou WebP.');
+    case 'COVER_TOO_BIG': return tr('The cover image must be 2 MB or less.', 'L’image de couverture doit faire 2 Mo au maximum.');
+    case 'BAD_COLOR': return tr('Choose a valid hex color (#RRGGBB).', 'Choisissez une couleur hexadécimale valide (#RRGGBB).');
+    case 'BAD_WEBSITE_URL': return tr('Website URL must start with https:// and point to a public domain.', 'L’URL du site doit commencer par https:// et pointer vers un domaine public.');
+    case 'BAD_BRANDING': return err.message;
+    case 'BAD_SLUG': return tr('Portal URL must use lowercase letters, numbers and hyphens (2 to 80 characters).', 'L’URL du portail doit contenir uniquement des lettres minuscules, chiffres et tirets.');
+    case 'SLUG_TAKEN': return tr('Another company already uses this portal URL.', 'Une autre entreprise utilise déjà cette URL de portail.');
     case 'STORAGE_UNAVAILABLE': return tr('File storage is not available right now. Try again later.', 'Le stockage de fichiers est indisponible pour le moment. Réessayez plus tard.');
     default: return err.message;
   }
@@ -284,6 +292,9 @@ export function auditText(a: AuditEntry, tr: Tr): string {
     case 'assignment_removed': return tr('Assignment removed', 'Attribution supprimée');
     case 'logo_changed': return tr('Logo changed', 'Logo modifié');
     case 'logo_removed': return tr('Logo removed', 'Logo supprimé');
+    case 'cover_changed': return tr('Cover image changed', 'Image de couverture modifiée');
+    case 'cover_removed': return tr('Cover image removed', 'Image de couverture supprimée');
+    case 'branding_changed': return tr('Portal branding updated', 'Personnalisation du portail mise à jour');
     case 'settings_changed': return tr('Settings changed', 'Paramètres modifiés');
     case 'expiry_notice_sent': return tr('Expiry warning sent', 'Avertissement d’expiration envoyé');
     default: return a.action;

@@ -4,6 +4,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/localization/translations.dart';
+import '../../../core/widgets/timezone_picker_field.dart';
 import '../common/admin_kit.dart';
 import 'batch_detail_panel.dart';
 import 'batch_utils.dart';
@@ -340,12 +341,12 @@ class _BatchEditorPanelState extends ConsumerState<BatchEditorPanel> {
   List<Widget> _schedule(bool fr) {
     final weekly = _days.fold<int>(0, (s, d) => s + (_mins(_endOf(d)) - _mins(_startOf(d))).clamp(0, 1440));
     return [
-      AdminSelect<String>(
-        label: fr ? 'Fuseau horaire' : 'Timezone',
+      TimezonePickerField(
         value: _tz,
-        options: [for (final z in {_tz, ...BatchX.timezones}) FilterOption(z, z.replaceAll('_', ' '))],
-        onChanged: (v) => setState(() => _tz = v ?? _tz),
+        label: fr ? 'Fuseau horaire' : 'Timezone',
+        onChanged: (v) => setState(() => _tz = v),
       ),
+      const SizedBox(height: 14),
       Text(fr ? 'Les cours ont lieu' : 'Classes take place', style: AppTypography.caption.copyWith(color: AppColors.textMuted, fontWeight: FontWeight.w700)),
       const SizedBox(height: 8),
       SegmentedButton<String>(

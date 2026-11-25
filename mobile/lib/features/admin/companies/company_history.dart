@@ -111,7 +111,7 @@ HistoryText describeHistory(BuildContext context, Map<String, dynamic> item) {
       } else {
         out.title = fr ? 'Informations modifiées' : 'Details changed';
       }
-      const labels = {'name': ['Nom officiel', 'Official name'], 'display_name': ['Nom affiché', 'Displayed name'], 'default_language': ['Langue', 'Language'], 'notes': ['Notes internes', 'Internal notes']};
+      const labels = {'name': ['Nom officiel', 'Official name'], 'display_name': ['Nom affiché', 'Displayed name'], 'slug': ['URL du portail', 'Portal URL'], 'default_language': ['Langue', 'Language'], 'notes': ['Notes internes', 'Internal notes']};
       for (final e in labels.entries) {
         final c = J.map(d[e.key]);
         if (c.isNotEmpty) out.changes.add(HistoryChange(fr ? e.value[0] : e.value[1], J.s(c['from']).isEmpty ? '—' : J.s(c['from']), J.s(c['to']).isEmpty ? '—' : J.s(c['to'])));
@@ -249,6 +249,7 @@ class _CompanyHistorySectionState extends ConsumerState<CompanyHistorySection> {
       FilterOption('status', fr ? 'Statut' : 'Status'),
       FilterOption('exams', fr ? 'Examens' : 'Exams'),
       FilterOption('people', fr ? 'Personnes' : 'People'),
+      FilterOption('profile', fr ? 'Profil & marque' : 'Profile & branding'),
     ];
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (s != null) _summaryTiles(context, s),

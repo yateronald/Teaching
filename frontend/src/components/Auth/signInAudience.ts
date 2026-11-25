@@ -1,14 +1,24 @@
 /* Email-first sign-in: what each kind of space says before the password.
    The server only ever tells the page a kind of space (and, for company
-   accounts, the company's public name and logo) — see backend
+   accounts, the company's public branding) - see backend
    services/signInHints.js. Unknown emails and administrators both get the
    neutral "platform" welcome. */
+
+import { normalizePortalBranding } from '../../utils/portalTheme';
+import type { PortalBranding } from '../../utils/portalTheme';
 
 export type Audience = 'platform' | 'exam' | 'student' | 'teacher' | 'company_learner' | 'company_manager';
 export const AUDIENCES: Audience[] = ['platform', 'exam', 'student', 'teacher', 'company_learner', 'company_manager'];
 
 /** A company's public branding (also served for its own sign-in page, /o/<slug>). */
-export interface CompanyBrand { name: string; slug: string; logo_url: string | null; default_language: 'fr' | 'en' }
+export interface CompanyBrand {
+  name: string;
+  slug: string;
+  logo_url: string | null;
+  cover_url?: string | null;
+  default_language: 'fr' | 'en';
+  branding?: PortalBranding;
+}
 export interface Presentation { audience: Audience; company?: CompanyBrand | null }
 
 type Tr = (en: string, fr: string) => string;
@@ -18,7 +28,7 @@ export interface Welcome {
   eyebrow: string;
   title: string;
   sub: string;
-  /** Left panel. */
+  /** Left / brand hero panel. */
   side: { eyebrow: string; title: string; chips: string[]; stats: boolean };
 }
 
@@ -27,16 +37,22 @@ const skills = (tr: Tr) => [tr('Reading', 'Compréhension écrite'), tr('Listeni
 /** The welcome of the password step, for one audience. */
 export function welcomeFor(p: Presentation, tr: Tr): Welcome {
   const name = p.company?.name || '';
+  const b = p.company?.branding;
+  const customTag = b?.tagline || '';
+  const customHeadline = b?.headline || '';
+  const customSub = b?.welcome_message || '';
+  const customChips = b?.highlights && b.highlights.length > 0 ? b.highlights : null;
+
   switch (p.audience) {
     case 'company_manager':
       return {
         eyebrow: tr(`${name} · Company space`, `${name} · Espace entreprise`),
         title: tr('Welcome back', 'Bon retour'),
-        sub: tr(`Manage ${name}’s learners, their exams and their credits.`, `Gérez les apprenants de ${name}, leurs examens et leurs crédits.`),
+        sub: customSub || tr(`Manage ${name}'s learners, their exams and their credits.`, `Gérez les apprenants de ${name}, leurs examens et leurs crédits.`),
         side: {
-          eyebrow: tr('Company space', 'Espace entreprise'),
-          title: tr(`Guide ${name}’s team to their French exam`, `Accompagnez l’équipe de ${name} vers son examen de français`),
-          chips: [tr('Learners', 'Apprenants'), tr('Groups', 'Groupes'), tr('Assignments', 'Attributions'), tr('Credits', 'Crédits')],
+          eyebrow: customTag || tr('Company space', 'Espace entreprise'),
+          title: customHeadline || tr(`Guide ${name}'s team to their French exam`, `Accompagnez l'équipe de ${name} vers son examen de français`),
+          chips: customChips || [tr('Learners', 'Apprenants'), tr('Groups', 'Groupes'), tr('Assignments', 'Attributions'), tr('Credits', 'Crédits')],
           stats: false,
         },
       };
@@ -44,12 +60,12 @@ export function welcomeFor(p: Presentation, tr: Tr): Welcome {
       return {
         eyebrow: name,
         title: tr('Welcome back', 'Bon retour'),
-        sub: tr(`Prepare for your exam with ${name}: practice tests, corrections and your results in one place.`,
+        sub: customSub || tr(`Prepare for your exam with ${name}: practice tests, corrections and your results in one place.`,
           `Préparez votre examen avec ${name} : examens blancs, corrections et résultats au même endroit.`),
         side: {
-          eyebrow: tr('Exam preparation', 'Préparation aux examens'),
-          title: tr(`Prepare for the TCF with ${name}`, `Préparez le TCF avec ${name}`),
-          chips: skills(tr),
+          eyebrow: customTag || tr('Exam preparation', 'Préparation aux examens'),
+          title: customHeadline || tr(`Prepare for the TCF with ${name}`, `Préparez le TCF avec ${name}`),
+          chips: customChips || skills(tr),
           stats: false,
         },
       };
@@ -108,9 +124,19 @@ export function welcomeFor(p: Presentation, tr: Tr): Welcome {
 
 /** The first step (email), before the space is known. */
 export function emailStepFor(company: CompanyBrand | null, tr: Tr) {
-  return company
-    ? { eyebrow: company.name, title: tr('Sign in', 'Connexion'), sub: tr(`Sign in to ${company.name}’s exam preparation space.`, `Connectez-vous à l’espace de préparation de ${company.name}.`) }
-    : { eyebrow: 'Learn French with Natives', title: tr('Sign in', 'Connexion'), sub: tr('Enter your email: we will take you to your space.', 'Saisissez votre email : nous vous conduisons à votre espace.') };
+  if (!company) {
+    return {
+      eyebrow: 'Learn French with Natives',
+      title: tr('Sign in', 'Connexion'),
+      sub: tr('Enter your email: we will take you to your space.', 'Saisissez votre email : nous vous conduisons à votre espace.'),
+    };
+  }
+  const b = company.branding;
+  return {
+    eyebrow: b?.tagline || company.name,
+    title: tr('Sign in', 'Connexion'),
+    sub: b?.welcome_message || tr(`Sign in to ${company.name}'s learning portal.`, `Connectez-vous à l'espace de formation de ${company.name}.`),
+  };
 }
 
 /** Only a well-formed answer is trusted; anything else reads as the neutral welcome. */
@@ -118,8 +144,15 @@ export function readPresentation(data: unknown): Presentation {
   const d = (data && typeof data === 'object' ? data : {}) as { audience?: unknown; company?: Partial<CompanyBrand> | null };
   const audience = AUDIENCES.includes(d.audience as Audience) ? (d.audience as Audience) : 'platform';
   const c = d.company;
-  const company = c && typeof c.name === 'string' && typeof c.slug === 'string'
-    ? { name: c.name, slug: c.slug, logo_url: typeof c.logo_url === 'string' && c.logo_url.startsWith('/api/public/org/') ? c.logo_url : null, default_language: c.default_language === 'en' ? 'en' as const : 'fr' as const }
+  const company: CompanyBrand | null = c && typeof c.name === 'string' && typeof c.slug === 'string'
+    ? {
+      name: c.name,
+      slug: c.slug,
+      logo_url: typeof c.logo_url === 'string' && c.logo_url.startsWith('/api/public/org/') ? c.logo_url : null,
+      cover_url: typeof c.cover_url === 'string' && c.cover_url.startsWith('/api/public/org/') ? c.cover_url : null,
+      default_language: c.default_language === 'en' ? 'en' as const : 'fr' as const,
+      branding: normalizePortalBranding(c.branding),
+    }
     : null;
   if ((audience === 'company_learner' || audience === 'company_manager') && !company) return { audience: 'platform' };
   return { audience, company };

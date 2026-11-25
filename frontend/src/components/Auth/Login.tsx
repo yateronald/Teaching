@@ -26,18 +26,10 @@ import './Login.css';
 import { homeFor } from '../../utils/roles';
 import { emailStepFor, readPresentation, welcomeFor } from './signInAudience';
 import type { CompanyBrand, Presentation } from './signInAudience';
+import CompanyLoginShell from './CompanyLoginShell';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** A company's logo on a white tile, or its initial. */
-const CompanyMark: React.FC<{ company: CompanyBrand; className: string }> = ({ company, className }) => (
-  <span className={className}>
-    {company.logo_url
-      ? <img src={apiAsset(company.logo_url)} alt={company.name} />
-      : <b aria-hidden="true">{company.name.slice(0, 1).toUpperCase()}</b>}
-  </span>
-);
 
 /* ══════════════════════════════════════════
    Email-first sign-in. Step 1 asks for the email only; the server says which
@@ -148,9 +140,20 @@ const Login: React.FC = () => {
   const head = step === 'password' ? welcome : emailStepFor(slugCompany, tr);
 
   useEffect(() => {
-    document.title = company ? company.name : 'Learn French with Natives';
+    const tag = company?.branding?.tagline;
+    document.title = company ? (tag ? `${company.name} · ${tag}` : company.name) : 'Learn French with Natives';
     brandingUtils.applyCSSVariables();
   }, [company]);
+
+  // Swap browser tab icon to the company's logo on branded portals.
+  useEffect(() => {
+    if (!company?.logo_url) return;
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) return;
+    const prev = link.getAttribute('href');
+    link.setAttribute('href', apiAsset(company.logo_url));
+    return () => { if (prev) link.setAttribute('href', prev); };
+  }, [company?.logo_url]);
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -260,32 +263,104 @@ const Login: React.FC = () => {
   const isCompany = !!company;
   const sideKey = `${shown.audience}:${company?.slug || ''}`;
 
+  const formNode = (
+    <Form form={form} name="login" onFinish={onFinish} layout="vertical" size="large" className="login-form" requiredMark={false}>
+      {step === 'email' ? (
+        <>
+          <Form.Item
+            name="email"
+            label={t('login.email_label')}
+            rules={[
+              { required: true, message: tr('Enter your email address', 'Saisissez votre adresse email') },
+              { pattern: EMAIL_RE, message: t('login.error_invalid') },
+            ]}
+          >
+            <Input
+              prefix={<MailOutlined className="login-input-icon" />}
+              placeholder={t('login.email_placeholder')}
+              autoComplete="username"
+              inputMode="email"
+              autoFocus
+              className="login-input"
+            />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0 }}>
+            <Button type="primary" htmlType="submit" loading={identifying} block className="login-submit-btn">
+              {tr('Continue', 'Continuer')} {!identifying && <ArrowRightOutlined />}
+            </Button>
+          </Form.Item>
+        </>
+      ) : (
+        <>
+          <div className="login-account">
+            <span className="login-account-avatar" aria-hidden="true">{email.slice(0, 1).toUpperCase()}</span>
+            <span className="login-account-email" title={email}>{email}</span>
+            <button type="button" className="login-account-change" onClick={backToEmail}>{tr('Change', 'Modifier')}</button>
+          </div>
+          {/* For password managers: the account this password belongs to. */}
+          <input className="login-sr-only" type="email" name="username" autoComplete="username" value={email} readOnly tabIndex={-1} aria-hidden="true" />
+
+          <Form.Item
+            name="password"
+            label={t('login.password_label')}
+            rules={[
+              { required: true, message: tr('Enter your password', 'Saisissez votre mot de passe') },
+              { min: 6, message: t('login.error_invalid') },
+            ]}
+          >
+            <Input.Password
+              prefix={<LockOutlined className="login-input-icon" />}
+              placeholder={t('login.password_placeholder')}
+              autoComplete="current-password"
+              autoFocus
+              className="login-input"
+            />
+          </Form.Item>
+
+          <div className="login-forgot-row">
+            <Button type="link" onClick={() => setResetOpen(true)} className="login-forgot-link">
+              {t('login.forgot')}
+            </Button>
+          </div>
+
+          <Form.Item style={{ marginBottom: 0 }}>
+            <Button type="primary" htmlType="submit" loading={loading} block className="login-submit-btn">
+              {loading ? t('login.loading') : t('login.submit')}
+            </Button>
+          </Form.Item>
+        </>
+      )}
+    </Form>
+  );
+
   return (
     <>
       <SEO
-        title="Sign in — Learn French with Natives"
-        description="Sign in to your Learn French with Natives space."
-        path="/login"
+        title={company ? company.name : 'Sign in - Learn French with Natives'}
+        description={company ? `Sign in to ${company.name}` : 'Sign in to your Learn French with Natives space.'}
+        path={slug ? `/o/${slug}` : '/login'}
         noindex
       />
-      <div className={`login-page${isCompany ? ' login-page--company' : ''}`}>
-        {/* ── LEFT — brand panel: Learn French with Natives, or the company ── */}
-        <aside className="login-side">
-          <div className="login-side-bg" aria-hidden="true" />
-          <div className="login-side-tint" aria-hidden="true" />
-          <div className="login-tricolore" aria-hidden="true">
-            <span /><span /><span />
-          </div>
-
-          {company ? (
-            <div className="login-side-logo">
-              <CompanyMark company={company} className="login-side-logo-mark login-company-mark" />
-              <span className="login-side-logo-text">
-                <strong>{company.name}</strong>
-                <em>{shown.audience === 'company_manager' ? tr('Company space', 'Espace entreprise') : tr('Exam preparation', 'Préparation aux examens')}</em>
-              </span>
+      {isCompany ? (
+        <CompanyLoginShell
+          company={company}
+          audience={shown.audience}
+          step={step}
+          lang={i18n.language === 'en' ? 'en' : 'fr'}
+          onSelectLang={handleSelectLang}
+        >
+          {formNode}
+        </CompanyLoginShell>
+      ) : (
+        <div className="login-page">
+          {/* ── LEFT — brand panel ── */}
+          <aside className="login-side">
+            <div className="login-side-bg" aria-hidden="true" />
+            <div className="login-side-tint" aria-hidden="true" />
+            <div className="login-tricolore" aria-hidden="true">
+              <span /><span /><span />
             </div>
-          ) : (
+
             <a href="/" className="login-side-logo" aria-label="Accueil">
               <span className="login-side-logo-mark">
                 <img src={ASSET_PATHS.LOGOS.MAIN} alt="Learn French with Natives" />
@@ -295,191 +370,109 @@ const Login: React.FC = () => {
                 <em>with Natives</em>
               </span>
             </a>
-          )}
 
-          <div className="login-side-body" key={sideKey}>
-            <p className="login-eyebrow">
-              <span className="login-eyebrow-dash" aria-hidden="true" />
-              {welcome.side.eyebrow}
-            </p>
-            <h1 className="login-side-title">{welcome.side.title}</h1>
-            <div className="login-side-exams">
-              {welcome.side.chips.map(e => <span key={e}>{e}</span>)}
+            <div className="login-side-body" key={sideKey}>
+              <p className="login-eyebrow">
+                <span className="login-eyebrow-dash" aria-hidden="true" />
+                {welcome.side.eyebrow}
+              </p>
+              <h1 className="login-side-title">{welcome.side.title}</h1>
+              <div className="login-side-exams">
+                {welcome.side.chips.map(e => <span key={e}>{e}</span>)}
+              </div>
+              {welcome.side.stats && (
+                <dl className="login-side-stats">
+                  <div><dd>98%</dd><dt>{t('login.stat_pass')}</dt></div>
+                  <div><dd>15+</dd><dt>{t('login.stat_teachers')}</dt></div>
+                  <div><dd>1 000+</dd><dt>{t('login.stat_students')}</dt></div>
+                </dl>
+              )}
             </div>
-            {welcome.side.stats && (
-              <dl className="login-side-stats">
-                <div><dd>98%</dd><dt>{t('login.stat_pass')}</dt></div>
-                <div><dd>15+</dd><dt>{t('login.stat_teachers')}</dt></div>
-                <div><dd>1 000+</dd><dt>{t('login.stat_students')}</dt></div>
-              </dl>
-            )}
-          </div>
 
-          <div className="login-side-foot">
-            {company ? (
-              <span className="login-powered">{tr('Powered by', 'Propulsé par')} <img src={ASSET_PATHS.LOGOS.MAIN} alt="" aria-hidden="true" /> <strong>Learn French with Natives</strong></span>
-            ) : (
-              <>
-                <span className="login-side-rating">
-                  {[...Array(5)].map((_, i) => <StarFilled key={i} aria-hidden="true" />)}
-                </span>
-                <span>4,9 / 5 · 500+ avis</span>
-              </>
-            )}
-          </div>
-        </aside>
-
-        {/* ── RIGHT — form panel ── */}
-        <main className="login-main">
-          <header className="login-topbar">
-            {/* Mobile-only logo (side panel hidden on small screens) */}
-            {company ? (
-              <span className="login-topbar-logo">
-                {company.logo_url && <img src={apiAsset(company.logo_url)} alt="" />}
-                <strong>{company.name}</strong>
+            <div className="login-side-foot">
+              <span className="login-side-rating">
+                {[...Array(5)].map((_, i) => <StarFilled key={i} aria-hidden="true" />)}
               </span>
-            ) : (
+              <span>4,9 / 5 · 500+ avis</span>
+            </div>
+          </aside>
+
+          {/* ── RIGHT — form panel ── */}
+          <main className="login-main">
+            <header className="login-topbar">
               <a href="/" className="login-topbar-logo" aria-label="Accueil">
                 <img src={ASSET_PATHS.LOGOS.MAIN} alt="Learn French with Natives" />
                 <strong>Learn French <em>with Natives</em></strong>
               </a>
-            )}
 
-            <div className="login-topbar-actions">
-              <div ref={langSwitcherRef} className={`login-lang${langOpen ? ' is-open' : ''}`}>
-                <button
-                  type="button"
-                  className="login-lang-toggle"
-                  onClick={() => setLangOpen((o) => !o)}
-                  aria-label="Switch language"
-                  aria-expanded={langOpen}
-                >
-                  <GlobalOutlined />
-                  <span>{i18n.language === 'en' ? 'EN' : 'FR'}</span>
-                  <DownOutlined className="login-lang-chevron" />
-                </button>
-                {langOpen && (
-                  <div className="login-lang-dropdown">
-                    <button
-                      type="button"
-                      className={`login-lang-option${i18n.language === 'en' ? ' is-active' : ''}`}
-                      onMouseDown={(e) => { e.preventDefault(); handleSelectLang('en'); }}
-                    >
-                      English
-                      {i18n.language === 'en' && <CheckOutlined />}
-                    </button>
-                    <button
-                      type="button"
-                      className={`login-lang-option${i18n.language === 'fr' ? ' is-active' : ''}`}
-                      onMouseDown={(e) => { e.preventDefault(); handleSelectLang('fr'); }}
-                    >
-                      Français
-                      {i18n.language === 'fr' && <CheckOutlined />}
-                    </button>
-                  </div>
-                )}
-              </div>
-              <a href="/" className="login-back-link">
-                <ArrowLeftOutlined aria-hidden="true" />
-                <span>{tr('Back to home', 'Retour à l’accueil')}</span>
-              </a>
-            </div>
-          </header>
-
-          <div className="login-form-wrap">
-            <div className="login-card">
-              <div className="login-card-tricolore" aria-hidden="true">
-                <span /><span /><span />
-              </div>
-
-              <div className="login-step" key={`${step}:${sideKey}`}>
-                {company
-                  ? <CompanyMark company={company} className="login-card-mark login-card-mark--company" />
-                  : <div className="login-card-mark"><img src={ASSET_PATHS.LOGOS.MAIN} alt="" aria-hidden="true" /></div>}
-
-                <p className="login-eyebrow login-eyebrow--dark">
-                  <span className="login-eyebrow-dash" aria-hidden="true" />
-                  {head.eyebrow}
-                </p>
-                <h2 className="login-title">{head.title}</h2>
-                <p className="login-sub">{head.sub}</p>
-
-                <Form form={form} name="login" onFinish={onFinish} layout="vertical" size="large" className="login-form" requiredMark={false}>
-                  {step === 'email' ? (
-                    <>
-                      <Form.Item
-                        name="email"
-                        label={t('login.email_label')}
-                        rules={[
-                          { required: true, message: tr('Enter your email address', 'Saisissez votre adresse email') },
-                          { pattern: EMAIL_RE, message: t('login.error_invalid') },
-                        ]}
+              <div className="login-topbar-actions">
+                <div ref={langSwitcherRef} className={`login-lang${langOpen ? ' is-open' : ''}`}>
+                  <button
+                    type="button"
+                    className="login-lang-toggle"
+                    onClick={() => setLangOpen((o) => !o)}
+                    aria-label="Switch language"
+                    aria-expanded={langOpen}
+                  >
+                    <GlobalOutlined />
+                    <span>{i18n.language === 'en' ? 'EN' : 'FR'}</span>
+                    <DownOutlined className="login-lang-chevron" />
+                  </button>
+                  {langOpen && (
+                    <div className="login-lang-dropdown">
+                      <button
+                        type="button"
+                        className={`login-lang-option${i18n.language === 'en' ? ' is-active' : ''}`}
+                        onMouseDown={(e) => { e.preventDefault(); handleSelectLang('en'); }}
                       >
-                        <Input
-                          prefix={<MailOutlined className="login-input-icon" />}
-                          placeholder={t('login.email_placeholder')}
-                          autoComplete="username"
-                          inputMode="email"
-                          autoFocus
-                          className="login-input"
-                        />
-                      </Form.Item>
-                      <Form.Item style={{ marginBottom: 0 }}>
-                        <Button type="primary" htmlType="submit" loading={identifying} block className="login-submit-btn">
-                          {tr('Continue', 'Continuer')} {!identifying && <ArrowRightOutlined />}
-                        </Button>
-                      </Form.Item>
-                    </>
-                  ) : (
-                    <>
-                      <div className="login-account">
-                        <span className="login-account-avatar" aria-hidden="true">{email.slice(0, 1).toUpperCase()}</span>
-                        <span className="login-account-email" title={email}>{email}</span>
-                        <button type="button" className="login-account-change" onClick={backToEmail}>{tr('Change', 'Modifier')}</button>
-                      </div>
-                      {/* For password managers: the account this password belongs to. */}
-                      <input className="login-sr-only" type="email" name="username" autoComplete="username" value={email} readOnly tabIndex={-1} aria-hidden="true" />
-
-                      <Form.Item
-                        name="password"
-                        label={t('login.password_label')}
-                        rules={[
-                          { required: true, message: tr('Enter your password', 'Saisissez votre mot de passe') },
-                          { min: 6, message: t('login.error_invalid') },
-                        ]}
+                        English
+                        {i18n.language === 'en' && <CheckOutlined />}
+                      </button>
+                      <button
+                        type="button"
+                        className={`login-lang-option${i18n.language === 'fr' ? ' is-active' : ''}`}
+                        onMouseDown={(e) => { e.preventDefault(); handleSelectLang('fr'); }}
                       >
-                        <Input.Password
-                          prefix={<LockOutlined className="login-input-icon" />}
-                          placeholder={t('login.password_placeholder')}
-                          autoComplete="current-password"
-                          autoFocus
-                          className="login-input"
-                        />
-                      </Form.Item>
-
-                      <div className="login-forgot-row">
-                        <Button type="link" onClick={() => setResetOpen(true)} className="login-forgot-link">
-                          {t('login.forgot')}
-                        </Button>
-                      </div>
-
-                      <Form.Item style={{ marginBottom: 0 }}>
-                        <Button type="primary" htmlType="submit" loading={loading} block className="login-submit-btn">
-                          {loading ? t('login.loading') : t('login.submit')}
-                        </Button>
-                      </Form.Item>
-                    </>
+                        Français
+                        {i18n.language === 'fr' && <CheckOutlined />}
+                      </button>
+                    </div>
                   )}
-                </Form>
+                </div>
+                <a href="/" className="login-back-link">
+                  <ArrowLeftOutlined aria-hidden="true" />
+                  <span>{tr('Back to home', 'Retour à l’accueil')}</span>
+                </a>
               </div>
-            </div>
+            </header>
 
-            <p className="login-footer">
-              © {new Date().getFullYear()} Learn French with Natives · {tr('All rights reserved', 'Tous droits réservés')}
-            </p>
-          </div>
-        </main>
-      </div>
+            <div className="login-form-wrap">
+              <div className="login-card">
+                <div className="login-card-tricolore" aria-hidden="true">
+                  <span /><span /><span />
+                </div>
+
+                <div className="login-step" key={`${step}:${sideKey}`}>
+                  <div className="login-card-mark"><img src={ASSET_PATHS.LOGOS.MAIN} alt="" aria-hidden="true" /></div>
+
+                  <p className="login-eyebrow login-eyebrow--dark">
+                    <span className="login-eyebrow-dash" aria-hidden="true" />
+                    {head.eyebrow}
+                  </p>
+                  <h2 className="login-title">{head.title}</h2>
+                  <p className="login-sub">{head.sub}</p>
+
+                  {formNode}
+                </div>
+              </div>
+
+              <p className="login-footer">
+                © {new Date().getFullYear()} Learn French with Natives · {tr('All rights reserved', 'Tous droits réservés')}
+              </p>
+            </div>
+          </main>
+        </div>
+      )}
 
       <PasswordResetModal
         open={resetOpen}

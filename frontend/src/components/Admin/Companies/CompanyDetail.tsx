@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App as AntApp, Button, DatePicker, Drawer, Dropdown, Input, InputNumber, Modal, Popconfirm, Segmented, Skeleton, Tabs, Upload } from 'antd';
+import { App as AntApp, Button, DatePicker, Drawer, Dropdown, Input, InputNumber, Modal, Segmented, Skeleton, Tabs } from 'antd';
 import {
   ArrowLeftOutlined, BankOutlined, CalendarOutlined, CheckCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined,
-  MailOutlined, MinusOutlined, MoreOutlined, PictureOutlined, PlusOutlined, SaveOutlined, StopOutlined, TeamOutlined, ThunderboltOutlined,
-  UploadOutlined, UserAddOutlined, WarningOutlined,
+  MailOutlined, MinusOutlined, MoreOutlined, PlusOutlined, SaveOutlined, StopOutlined, TeamOutlined, ThunderboltOutlined,
+  UserAddOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -21,6 +21,7 @@ import type { Amounts, ReceiptLine } from '../../Org/CreditControls';
 import { indexTree } from '../../Org/contentTreeIndex';
 import type { ContentNode } from '../../Org/contentTreeIndex';
 import { Credits, Empty, Kpi, Level, LogoTile, StatePill } from '../../Org/OrgUi';
+import PortalBrandingEditor from '../../Org/PortalBrandingEditor';
 import '../../Org/Org.css';
 
 /* Administrator: one company — extend, credits, disable, content, people, logo, history. English console. */
@@ -108,7 +109,7 @@ const CompanyDetail: React.FC = () => {
         { key: 'managers', label: `Managers (${c.managers.length})`, children: <ManagersTab c={c} onChanged={load} /> },
         { key: 'content', label: 'Exams', children: <ContentTab c={c} onChanged={load} /> },
         { key: 'credits', label: 'Credit history', children: <CreditsTab c={c} /> },
-        { key: 'brand', label: 'Logo', children: <BrandTab c={c} onChanged={load} /> },
+        { key: 'brand', label: 'Portal & Branding', children: <PortalBrandingEditor company={c} mode="admin" onSaved={load} /> },
         { key: 'audit', label: 'History & audit', children: <CompanyHistory c={c} /> },
       ]} />
 
@@ -333,41 +334,6 @@ const CreditsTab: React.FC<{ c: Detail }> = ({ c }) => {
   );
 };
 
-/* ── Logo ── */
-const BrandTab: React.FC<{ c: Detail; onChanged: () => void }> = ({ c, onChanged }) => {
-  const { apiCall } = useAuth();
-  const { message } = AntApp.useApp();
-  const [busy, setBusy] = useState(false);
-  const upload = async (file: File) => {
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { message.error('PNG, JPG or WebP only'); return false; }
-    if (file.size > 1024 * 1024) { message.error('1 MB at most'); return false; }
-    setBusy(true);
-    try { const f = new FormData(); f.append('logo', file); await call(apiCall, `/admin/organizations/${c.id}/logo`, 'POST', f); message.success('Logo updated'); onChanged(); }
-    catch (e) { message.error(errorText(e, en)); } finally { setBusy(false); }
-    return false;
-  };
-  const remove = async () => {
-    try { await call(apiCall, `/admin/organizations/${c.id}/logo`, 'DELETE'); message.success('Logo removed'); onChanged(); } catch (e) { message.error(errorText(e, en)); }
-  };
-  return (
-    <section className="og-card">
-      <div className="og-card-head"><span className="og-card-title"><PictureOutlined />Logo</span></div>
-      <div className="og-card-body og-form">
-        <div className="og-brand-preview">
-          <LogoTile name={c.brand.name} logoUrl={c.brand.logo_url} size="lg" />
-          <div><strong>{c.brand.name}</strong><em>Shown to the company’s managers and learners, on its sign-in page and in its emails.</em>
-            <div className="og-actions" style={{ marginTop: 10 }}>
-              <Upload accept=".png,.jpg,.jpeg,.webp" showUploadList={false} beforeUpload={upload}><Button icon={<UploadOutlined />} loading={busy}>{c.brand.logo_url ? 'Change' : 'Upload'}</Button></Upload>
-              {c.brand.logo_url && <Popconfirm title="Remove the logo?" okText="Remove" okButtonProps={{ danger: true }} onConfirm={remove}><Button danger icon={<DeleteOutlined />}>Remove</Button></Popconfirm>}
-            </div></div>
-        </div>
-        <small className="og-muted">The company can also change its logo and displayed name from its own settings.</small>
-      </div>
-    </section>
-  );
-};
-
-/* ── Activity ── */
 /* ── Extend access ── */
 const ExtendModal: React.FC<{ open: boolean; c: Detail; onClose: () => void; onDone: () => void }> = ({ open, c, onClose, onDone }) => {
   const { apiCall } = useAuth();

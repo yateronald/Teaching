@@ -225,7 +225,7 @@ const HISTORY_CATEGORIES = {
     exams: ['content_changed'],
     people: ['manager_added', 'learner_added', 'account_deactivated', 'account_reactivated', 'account_deleted', 'invitation_resent', 'learner_updated', 'account_updated'],
     activity: ['group_created', 'group_updated', 'group_deleted', 'assigned', 'assignment_removed'],
-    profile: ['company_created', 'company_updated', 'logo_changed', 'logo_removed', 'settings_changed'],
+    profile: ['company_created', 'company_updated', 'logo_changed', 'logo_removed', 'cover_changed', 'cover_removed', 'branding_changed', 'settings_changed'],
 };
 
 /** The filter an entry belongs to (for its icon and colour). */

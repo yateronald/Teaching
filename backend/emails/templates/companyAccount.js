@@ -1,4 +1,4 @@
-const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml } = require('./base');
+const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml, BRAND } = require('./base');
 
 /**
  * Emails of a company's space, in the language the company chose (fr or en):
@@ -8,7 +8,7 @@ const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml } = require('./ba
 
 const WORDS = {
     fr: {
-        managerSubject: (org) => `${org} — votre espace entreprise`,
+        managerSubject: (org) => `${org} - votre espace entreprise`,
         learnerSubject: (org) => `${org} vous ouvre la préparation à l’examen`,
         managerTitle: 'Votre espace entreprise est prêt',
         learnerTitle: 'Votre préparation à l’examen est prête',
@@ -22,14 +22,14 @@ const WORDS = {
         password: 'Mot de passe provisoire',
         signIn: 'Se connecter',
         change: 'Pour votre sécurité, vous choisirez un nouveau mot de passe dès votre première connexion.',
-        expirySubject: (org, days) => `${org} — votre accès se termine dans ${days} jour${days > 1 ? 's' : ''}`,
+        expirySubject: (org, days) => `${org} - votre accès se termine dans ${days} jour${days > 1 ? 's' : ''}`,
         expiryTitle: 'Votre accès se termine bientôt',
         expiryIntro: (org, date) => `L’accès de <strong>${org}</strong> se termine le <strong>${date}</strong>. Après cette date, vos apprenants pourront toujours se connecter et voir leurs résultats, mais plus démarrer d’examen, et vous ne pourrez plus attribuer d’examens ni distribuer de crédits.`,
         expiryAction: 'Pour prolonger l’accès ou ajouter des crédits, contactez l’administrateur en répondant à cet email.',
         open: 'Ouvrir mon espace',
     },
     en: {
-        managerSubject: (org) => `${org} — your company space`,
+        managerSubject: (org) => `${org} - your company space`,
         learnerSubject: (org) => `${org} opened your exam preparation`,
         managerTitle: 'Your company space is ready',
         learnerTitle: 'Your exam preparation is ready',
@@ -43,7 +43,7 @@ const WORDS = {
         password: 'Temporary password',
         signIn: 'Sign in',
         change: 'For your security, you will choose a new password right after you sign in for the first time.',
-        expirySubject: (org, days) => `${org} — your access ends in ${days} day${days > 1 ? 's' : ''}`,
+        expirySubject: (org, days) => `${org} - your access ends in ${days} day${days > 1 ? 's' : ''}`,
         expiryTitle: 'Your access ends soon',
         expiryIntro: (org, date) => `Access for <strong>${org}</strong> ends on <strong>${date}</strong>. After that date your learners can still sign in and see their results, but cannot start an exam, and you can no longer assign exams or hand out credits.`,
         expiryAction: 'To extend the access or add credits, contact the administrator by replying to this email.',
@@ -57,18 +57,24 @@ const plain = (html) => html.replace(/<\/?strong>/g, '');
 const dateIn = (lang, value) => new Date(value).toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-GB', {
     day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
 });
+const safeHex = (hex) => (typeof hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(hex) ? hex : BRAND.primary);
 
 /**
  * @param {{ lang: 'fr'|'en', kind: 'manager'|'learner', name: string, email: string,
- *   tempPassword: string, orgName: string, accessEndsAt: string|Date, loginUrl: string, logoUrl?: string|null }} args
+ *   tempPassword: string, orgName: string, accessEndsAt: string|Date, loginUrl: string,
+ *   logoUrl?: string|null, branding?: Record<string, any>|null }} args
  */
-function buildCompanyInviteTemplate({ lang, kind, name, email, tempPassword, orgName, accessEndsAt, loginUrl, logoUrl = null }) {
+function buildCompanyInviteTemplate({
+    lang, kind, name, email, tempPassword, orgName, accessEndsAt, loginUrl, logoUrl = null, branding = null,
+}) {
     const l = langOf(lang);
     const w = WORDS[l];
     const org = escapeHtml(orgName);
     const subject = kind === 'manager' ? w.managerSubject(orgName) : w.learnerSubject(orgName);
     const title = kind === 'manager' ? w.managerTitle : w.learnerTitle;
     const intro = kind === 'manager' ? w.managerIntro(org) : w.learnerIntro(org);
+    const accent = safeHex(branding?.primary_color);
+    const isWhiteLabel = kind === 'learner' && (branding?.hide_powered_by !== false);
 
     const bodyHtml = `
       <p style="margin:0 0 14px; font-size:15px; color:#0f172a;">${w.hi(escapeHtml(name || email))}</p>
@@ -77,17 +83,29 @@ function buildCompanyInviteTemplate({ lang, kind, name, email, tempPassword, org
           { label: w.email, value: escapeHtml(email) },
           { label: w.until, value: escapeHtml(dateIn(l, accessEndsAt)) },
       ] })}
-      <div style="margin: 0 0 8px; font-size: 11px; font-weight: 700; color: #4338ca; letter-spacing: 0.6px; text-transform: uppercase;">${w.password}</div>
+      <div style="margin: 0 0 8px; font-size: 11px; font-weight: 700; color: ${accent}; letter-spacing: 0.6px; text-transform: uppercase;">${w.password}</div>
       <div style="font-family: 'SFMono-Regular', Menlo, Consolas, monospace; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:8px; padding:14px 16px; font-size:16px; font-weight:700; color:#0f172a; letter-spacing:1px; margin-bottom: 22px; word-break: break-all;">
         ${escapeHtml(tempPassword)}
       </div>
-      ${ctaButton({ label: w.signIn, href: loginUrl })}
+      ${ctaButton({ label: w.signIn, href: loginUrl, color: accent })}
       ${infoStrip({ tone: 'warn', text: w.change })}
     `;
 
     const html = baseHtml({
-        subject, preheader: w.preheader, eyebrow: w.eyebrow, title, bodyHtml,
-        logo: logoUrl, logoAlt: orgName, lang: l,
+        subject,
+        preheader: w.preheader,
+        eyebrow: w.eyebrow,
+        title,
+        bodyHtml,
+        logo: logoUrl,
+        logoAlt: orgName,
+        lang: l,
+        accentColor: accent,
+        siteUrl: branding?.website_url || loginUrl,
+        supportEmail: branding?.support_email || null,
+        footerText: isWhiteLabel ? (branding?.footer_text || null) : null,
+        whiteLabel: isWhiteLabel,
+        tagline: branding?.tagline || null,
     });
     const text = [
         `${l === 'fr' ? 'Bonjour' : 'Hi'} ${name || email},`,
@@ -109,20 +127,21 @@ function buildCompanyInviteTemplate({ lang, kind, name, email, tempPassword, org
  * @param {{ lang: 'fr'|'en', name: string, orgName: string, accessEndsAt: string|Date,
  *   daysLeft: number, appUrl: string, logoUrl?: string|null }} args
  */
-function buildCompanyExpiryTemplate({ lang, name, orgName, accessEndsAt, daysLeft, appUrl, logoUrl = null }) {
+function buildCompanyExpiryTemplate({ lang, name, orgName, accessEndsAt, daysLeft, appUrl, logoUrl = null, branding = null }) {
     const l = langOf(lang);
     const w = WORDS[l];
     const subject = w.expirySubject(orgName, daysLeft);
     const intro = w.expiryIntro(escapeHtml(orgName), escapeHtml(dateIn(l, accessEndsAt)));
+    const accent = safeHex(branding?.primary_color);
     const bodyHtml = `
       <p style="margin:0 0 14px; font-size:15px; color:#0f172a;">${w.hi(escapeHtml(name))}</p>
       <p style="margin:0 0 22px; font-size:14.5px; color:#475569; line-height:1.65;">${intro}</p>
       ${infoStrip({ tone: 'warn', text: w.expiryAction })}
-      ${ctaButton({ label: w.open, href: appUrl })}
+      ${ctaButton({ label: w.open, href: appUrl, color: accent })}
     `;
     const html = baseHtml({
         subject, preheader: subject, eyebrow: w.eyebrow, title: w.expiryTitle, bodyHtml,
-        logo: logoUrl, logoAlt: orgName, lang: l,
+        logo: logoUrl, logoAlt: orgName, lang: l, accentColor: accent, siteUrl: branding?.website_url || appUrl,
     });
     const text = [
         `${l === 'fr' ? 'Bonjour' : 'Hi'} ${name},`, '', plain(w.expiryIntro(orgName, dateIn(l, accessEndsAt))), '', w.expiryAction, '', appUrl,

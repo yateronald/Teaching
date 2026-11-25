@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../core/api/api_endpoints.dart';
 import '../../../core/constants/app_colors.dart';
 import '../common/admin_kit.dart';
+import 'portal_branding.dart';
+
+export 'portal_branding.dart';
 
 /// A company (organization) as the admin API describes it
 /// (GET /admin/organizations and /admin/organizations/:id).
@@ -27,6 +30,8 @@ class Company {
   final int managers;
   final String? notes;
   final String? logoUrl;
+  final String? coverUrl;
+  final PortalBranding branding;
   final CreditPot ee;
   final CreditPot eo;
 
@@ -54,6 +59,8 @@ class Company {
     required this.managers,
     required this.notes,
     required this.logoUrl,
+    this.coverUrl,
+    this.branding = const PortalBranding(),
     required this.ee,
     required this.eo,
     this.content = const [],
@@ -84,6 +91,8 @@ class Company {
       managers: j['managers'] is List ? J.list(j['managers']).where((m) => m['is_active'] == true).length : J.i(j['managers']),
       notes: J.s(j['notes']).isEmpty ? null : J.s(j['notes']),
       logoUrl: J.s(brand['logo_url']).isEmpty ? null : J.s(brand['logo_url']),
+      coverUrl: J.s(brand['cover_url']).isEmpty ? null : J.s(brand['cover_url']),
+      branding: PortalBranding.fromJson(J.map(brand['branding'])),
       ee: CreditPot.fromJson(J.map(credits['ee'])),
       eo: CreditPot.fromJson(J.map(credits['eo'])),
       content: J.list(j['content']),
@@ -99,6 +108,13 @@ class Company {
     if (logoUrl == null) return null;
     final host = ApiEndpoints.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
     return logoUrl!.startsWith('http') ? logoUrl : '$host$logoUrl';
+  }
+
+  /// The cover background image as a full address on the API host.
+  String? get coverAddress {
+    if (coverUrl == null) return null;
+    final host = ApiEndpoints.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+    return coverUrl!.startsWith('http') ? coverUrl : '$host$coverUrl';
   }
 
   /// The company's own sign-in page.
@@ -250,6 +266,12 @@ String auditLineText(Map<String, dynamic> a, bool fr) {
       return fr ? 'Logo modifié' : 'Logo changed';
     case 'logo_removed':
       return fr ? 'Logo supprimé' : 'Logo removed';
+    case 'cover_changed':
+      return fr ? 'Image de couverture modifiée' : 'Cover image changed';
+    case 'cover_removed':
+      return fr ? 'Image de couverture supprimée' : 'Cover image removed';
+    case 'branding_changed':
+      return fr ? 'Personnalisation du portail mise à jour' : 'Portal branding updated';
     case 'settings_changed':
       return fr ? 'Paramètres modifiés' : 'Settings changed';
     case 'expiry_notice_sent':

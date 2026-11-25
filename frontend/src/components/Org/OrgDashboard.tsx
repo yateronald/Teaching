@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Skeleton } from 'antd';
+import { App as AntApp, Button, Skeleton } from 'antd';
 import {
-  CalendarOutlined, FireOutlined, ReloadOutlined, RiseOutlined, SendOutlined, TeamOutlined, ThunderboltOutlined,
+  BgColorsOutlined, CalendarOutlined, CopyOutlined, ExportOutlined, FireOutlined, GlobalOutlined,
+  ReloadOutlined, RiseOutlined, SendOutlined, TeamOutlined, ThunderboltOutlined,
   UserAddOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -16,6 +17,7 @@ import './Org.css';
 const OrgDashboard: React.FC = () => {
   const { apiCall, user } = useAuth();
   const { tr, lang, locale } = useTr();
+  const { message } = AntApp.useApp();
   const navigate = useNavigate();
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +40,8 @@ const OrgDashboard: React.FC = () => {
   const maxWeek = Math.max(1, ...data.activity.weeks.map(w => w.attempts));
   const maxDist = Math.max(1, ...data.nclc_distribution.map(d => d.learners));
   const firstName = user?.first_name || '';
+  const signInUrl = `${window.location.origin}/o/${c.slug}`;
+  const brandPrimary = c.brand.branding?.primary_color || '#0F766E';
 
   return (
     <div className="og is-company">
@@ -47,6 +51,7 @@ const OrgDashboard: React.FC = () => {
         title={tr(`Hello ${firstName}`, `Bonjour ${firstName}`)}
         subtitle={<>{c.brand.name} · <StatePill company={c} /> · {tr('access until', 'accès jusqu’au')} {fmtDate(c.access_ends_at, locale)}</>}
         actions={<>
+          <Button icon={<BgColorsOutlined />} onClick={() => navigate('/app/org/settings')}>{tr('Customize portal', 'Personnaliser le portail')}</Button>
           <ChangeButton icon={<UserAddOutlined />} onClick={() => navigate('/app/org/learners?add=1')}>{tr('Add learners', 'Ajouter des apprenants')}</ChangeButton>
           <ChangeButton icon={<ThunderboltOutlined />} onClick={() => navigate('/app/org/credits')}>{tr('Give credits', 'Donner des crédits')}</ChangeButton>
           <ChangeButton type="primary" icon={<SendOutlined />} onClick={() => navigate('/app/org/assignments?new=1')}>{tr('Assign exams', 'Attribuer des examens')}</ChangeButton>
@@ -66,6 +71,36 @@ const OrgDashboard: React.FC = () => {
           value={c.state === 'active' ? tr(`${c.days_left} days`, `${c.days_left} jours`) : <StatePill company={c} />}
           note={tr(`until ${fmtDate(c.access_ends_at, locale)}`, `jusqu’au ${fmtDate(c.access_ends_at, locale)}`)} />
       </div>
+
+      <section className="og-card" style={{ marginBottom: 4 }}>
+        <div className="og-card-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <span style={{ width: 12, height: 34, borderRadius: 6, background: brandPrimary, flexShrink: 0 }} aria-hidden="true" />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <strong style={{ fontSize: 14, color: '#0F172A' }}>{tr('Your branded learner portal', 'Votre portail apprenant personnalisé')}</strong>
+                <span style={{ fontSize: 12, color: '#64748B', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <GlobalOutlined /> {signInUrl}
+                </span>
+              </div>
+              <span style={{ fontSize: 12.5, color: '#64748B' }}>
+                {tr('Customize your colors, logo, cover background, welcome text and live login preview anytime.', 'Personnalisez vos couleurs, votre logo, votre image de couverture et vos textes avec aperçu en direct.')}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Button size="small" icon={<CopyOutlined />} onClick={() => navigator.clipboard?.writeText(signInUrl).then(() => message.success(tr('Link copied', 'Lien copié')))}>
+              {tr('Copy link', 'Copier le lien')}
+            </Button>
+            <Button size="small" icon={<ExportOutlined />} href={signInUrl} target="_blank" rel="noopener noreferrer">
+              {tr('Open live', 'Ouvrir')}
+            </Button>
+            <Button size="small" type="primary" icon={<BgColorsOutlined />} onClick={() => navigate('/app/org/settings')}>
+              {tr('Customize branding & preview', 'Personnaliser & prévisualiser')}
+            </Button>
+          </div>
+        </div>
+      </section>
 
       <div className="og-grid">
         <section className="og-card og-span-7">

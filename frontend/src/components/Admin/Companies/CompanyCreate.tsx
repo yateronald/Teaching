@@ -4,6 +4,9 @@ import { BankOutlined, CheckCircleOutlined, UploadOutlined, WarningOutlined } fr
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import { useAuth } from '../../../contexts/AuthContext';
+import { DEFAULT_PORTAL_BRANDING, THEME_PRESETS } from '../../../utils/portalTheme';
+import type { LoginLayout, PortalBranding } from '../../../utils/portalTheme';
+import CompanyLoginShell from '../../Auth/CompanyLoginShell';
 import { call, errorText } from '../../Org/orgModel';
 import { LogoTile } from '../../Org/OrgUi';
 import ContentTreePicker from '../../Org/ContentTreePicker';
@@ -35,13 +38,16 @@ const CompanyCreate: React.FC<{ open: boolean; onClose: () => void; onCreated: (
   const [last, setLast] = useState('');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
+  const [branding, setBranding] = useState<PortalBranding>(DEFAULT_PORTAL_BRANDING);
+  const [customSlug, setCustomSlug] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setName(''); setDisplayName(''); setLogo(null); setLanguage('fr'); setStarts(dayjs()); setEnds(dayjs().add(3, 'month').endOf('day'));
-    setSeats(5); setContent([]); setEe(0); setEo(0); setFirst(''); setLast(''); setEmail(''); setNotes(''); setErr(null);
+    setSeats(5); setContent([]); setEe(0); setEo(0); setFirst(''); setLast(''); setEmail(''); setNotes('');
+    setBranding(DEFAULT_PORTAL_BRANDING); setCustomSlug(''); setErr(null);
     call<ContentNode[]>(apiCall, '/tcf/exam-assignments/content-tree').then(setTree).catch(() => setTree([]));
   }, [open, apiCall]);
 
@@ -76,6 +82,8 @@ const CompanyCreate: React.FC<{ open: boolean; onClose: () => void; onCreated: (
       const items = content.map(k => index.map.get(k)).filter(Boolean).map(r => ({ content_type: r!.node.type, content_id: r!.node.content_id ?? r!.node.id }));
       const payload = {
         name: name.trim(), display_name: displayName.trim() || null, default_language: language,
+        ...(customSlug.trim() ? { slug: customSlug.trim() } : {}),
+        portal_branding: branding,
         access_starts_at: starts?.toISOString(), access_ends_at: ends!.toISOString(), seat_limit: seats,
         content: items, ee_credits: ee || 0, eo_credits: eo || 0, notes: notes.trim() || null,
         manager: { first_name: first.trim(), last_name: last.trim(), email: email.trim() },
@@ -127,6 +135,55 @@ const CompanyCreate: React.FC<{ open: boolean; onClose: () => void; onCreated: (
           </div>
           <div className="og-field"><label>Language of the company’s space and emails</label>
             <Segmented value={language} onChange={v => setLanguage(v as 'fr' | 'en')} options={[{ value: 'fr', label: 'Français' }, { value: 'en', label: 'English' }]} /></div>
+
+          <div style={{ marginTop: 14, padding: 14, borderRadius: 12, border: '1px solid #E2E8F0', background: '#F8FAFC', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <strong style={{ fontSize: 13, color: '#0F172A' }}>Portal appearance & live sign-in preview</strong>
+              <span style={{ fontSize: 11.5, color: '#64748B' }}>More options (cover photo, copy, links) available after creation</span>
+            </div>
+            <div className="og-two">
+              <div className="og-field">
+                <label>Portal URL <em>optional</em></label>
+                <Input addonBefore="/o/" value={customSlug} onChange={e => setCustomSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} maxLength={80} placeholder="auto-from-name" />
+              </div>
+              <div className="og-field">
+                <label>Portal tagline <em>optional</em></label>
+                <Input value={branding.tagline} onChange={e => setBranding(b => ({ ...b, tagline: e.target.value }))} maxLength={80} placeholder="e.g. Corporate French Academy" />
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {THEME_PRESETS.map(p => {
+                  const active = branding.primary_color === p.primary_color && branding.secondary_color === p.secondary_color;
+                  return (
+                    <button key={p.id} type="button" onClick={() => setBranding(b => ({ ...b, primary_color: p.primary_color, secondary_color: p.secondary_color, surface_tone: p.surface_tone, hero_style: p.hero_style }))}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 999, border: active ? '1.5px solid #0F172A' : '1px solid #CBD5E1', background: '#FFFFFF', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      <span style={{ width: 12, height: 12, borderRadius: '50%', background: p.primary_color }} />
+                      {p.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="color" value={branding.primary_color} onChange={e => setBranding(b => ({ ...b, primary_color: e.target.value.toUpperCase() }))} style={{ width: 32, height: 28, padding: 1, border: '1px solid #CBD5E1', borderRadius: 6, cursor: 'pointer' }} aria-label="Custom primary color" />
+                <Segmented size="small" value={branding.login_layout} onChange={v => setBranding(b => ({ ...b, login_layout: v as LoginLayout }))}
+                  options={[{ value: 'split', label: 'Split' }, { value: 'centered', label: 'Centered' }, { value: 'minimal', label: 'Minimal' }]} />
+              </div>
+            </div>
+            <div style={{ width: '100%', height: 220, overflow: 'hidden', borderRadius: 10, border: '1px solid #CBD5E1', background: '#FFFFFF', position: 'relative' }}>
+              <div style={{ width: 1140, height: 680, transform: 'scale(0.323)', transformOrigin: 'top left', pointerEvents: 'none' }}>
+                <CompanyLoginShell
+                  company={{ name: displayName.trim() || name.trim() || 'Your Company', slug: customSlug.trim() || 'company', logo_url: null, default_language: language, branding }}
+                  logoUrlOverride={logoPreview}
+                  audience="company_learner"
+                  step="email"
+                  lang={language}
+                  previewMode
+                  forceViewport="desktop"
+                />
+              </div>
+            </div>
+          </div>
         </section>
 
         <section className="og-section">

@@ -37,6 +37,7 @@ import {
     NotificationOutlined,
     MailOutlined,
     CrownOutlined,
+    BgColorsOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -49,6 +50,7 @@ import MeetingLobbyWatcher from '../Meeting/MeetingLobbyWatcher';
 import OrgStateBanner from '../Org/OrgStateBanner';
 import { useTr } from '../../utils/useTr';
 import { apiAsset } from '../../utils/apiAsset';
+import { shellAccentVars } from '../../utils/portalTheme';
 import './Layout.css';
 
 /* ══════════════════════════════════════════
@@ -198,7 +200,7 @@ const bilingualNav = (role: Role, tr: Tr): NavGroup[] => role === 'org_admin' ? 
     {
         label: tr('Account', 'Compte'),
         items: [
-            { key: '/app/org/settings', icon: <BankOutlined />, label: tr('Company settings', 'Paramètres entreprise') },
+            { key: '/app/org/settings', icon: <BgColorsOutlined />, label: tr('Portal & settings', 'Portail & paramètres') },
             { key: '/app/profile', icon: <SettingOutlined />, label: tr('Profile settings', 'Mon profil') },
         ],
     },
@@ -287,7 +289,7 @@ const bilingualTitle = (p: string, tr: Tr): string | null => {
         '/org/groups': tr('Groups', 'Groupes'),
         '/org/assignments': tr('Assignments', 'Attributions'),
         '/org/credits': tr('Credits', 'Crédits'),
-        '/org/settings': tr('Company settings', 'Paramètres entreprise'),
+        '/org/settings': tr('Portal & settings', 'Portail & paramètres'),
         '/exam-home': tr('Dashboard', 'Tableau de bord'),
         '/exam-practice': tr('Practice', 'S’entraîner'),
         '/exam-results': tr('My results', 'Mes résultats'),
@@ -566,10 +568,11 @@ const Layout: React.FC = () => {
     const meta = roleMetaFor(role, tr);
     const bilingual = role === 'candidate' || role === 'org_admin';
     const org = user?.organization || null;
+    const shellAccent = org ? shellAccentVars(org.branding?.primary_color) : undefined;
     const brand = org ? {
         name: org.name,
         logoUrl: org.logo_url ? apiAsset(org.logo_url) : null,
-        tagline: tr('Exam preparation', 'Préparation aux examens'),
+        tagline: org.branding?.tagline || tr('Exam preparation', 'Préparation aux examens'),
     } : null;
     const isMobile = r.shouldUseDrawer;
 
@@ -602,6 +605,16 @@ const Layout: React.FC = () => {
     const page = pageInfo(location.pathname, role, tr);
     useEffect(() => { document.title = `${page.title} · ${brand?.name || BRAND}`; }, [page.title, brand?.name]);
 
+    // Use the company's logo as browser tab icon for signed-in company users.
+    useEffect(() => {
+        if (!org?.logo_url) return;
+        const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+        if (!link) return;
+        const prev = link.getAttribute('href');
+        link.setAttribute('href', apiAsset(org.logo_url));
+        return () => { if (prev) link.setAttribute('href', prev); };
+    }, [org?.logo_url]);
+
     const nav = navFor(role, { monitoring: canViewMonitoring }, tr);
     const allItems = nav.flatMap(g => g.items);
     const firstSegment = '/app/' + (location.pathname.replace(/^\/app\/?/, '').split('/')[0] || '');
@@ -611,7 +624,11 @@ const Layout: React.FC = () => {
         ?? ACTIVE_ALIASES[firstSegment]
         ?? firstSegment;
 
-    const handleLogout = () => { logout(); navigate('/login'); };
+    const handleLogout = () => {
+        const orgSlug = user?.organization?.slug;
+        logout();
+        navigate(orgSlug ? `/o/${encodeURIComponent(orgSlug)}` : '/login');
+    };
     const toggleSidebar = () => {
         if (isMobile) { setDrawerOpen(true); return; }
         setCollapsed(c => {
@@ -633,7 +650,7 @@ const Layout: React.FC = () => {
     const showAccountName = r.width >= 1024;
 
     return (
-        <div className={`al al-role-${role}`} style={{ '--al-sidebar-w': `${sideW}px` } as React.CSSProperties}>
+        <div className={`al al-role-${role}`} style={{ '--al-sidebar-w': `${sideW}px`, ...shellAccent } as React.CSSProperties}>
             {noticeHolder}
             <a href="#al-main" className="al-skip">{bilingual ? tr('Skip to content', 'Aller au contenu') : 'Skip to content'}</a>
 
@@ -645,6 +662,7 @@ const Layout: React.FC = () => {
                     closable={false}
                     width={Math.min(288, r.width - 48)}
                     rootClassName={`al-drawer al-role-${role}`}
+                    style={shellAccent}
                     styles={{ body: { padding: 0 } }}
                 >
                     <Sidebar
@@ -725,7 +743,7 @@ const Layout: React.FC = () => {
                         placement="bottomRight"
                         menu={{ items: accountItems }}
                         popupRender={menu => (
-                            <div className={`al-pop al-role-${role}`}>
+                            <div className={`al-pop al-role-${role}`} style={shellAccent}>
                                 <div className="al-pop-head">
                                     <Avatar user={user} token={token} size={36} />
                                     <div className="al-pop-who">
@@ -759,7 +777,11 @@ const Layout: React.FC = () => {
                     <Suspense fallback={<div className="app-route-loading is-inner" role="status" aria-label="Loading" />}>
                         {bilingual ? (
                             <ConfigProvider locale={lang === 'fr' ? frFR : enGB}
-                                theme={role === 'org_admin' ? { token: { colorPrimary: '#0f766e' } } : undefined}>
+                                theme={org?.branding?.primary_color
+                                    ? { token: { colorPrimary: org.branding.primary_color } }
+                                    : role === 'org_admin'
+                                        ? { token: { colorPrimary: '#0f766e' } }
+                                        : undefined}>
                                 <Outlet />
                             </ConfigProvider>
                         ) : <Outlet />}

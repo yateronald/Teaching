@@ -7,6 +7,8 @@ import '../../../core/auth/auth_notifier.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/localization/translations.dart';
+import '../../../core/utils/schedule_timezone.dart';
+import '../../../core/widgets/timezone_picker_field.dart';
 import '../../teacher/meetings/screens/pre_join_screen.dart';
 import '../common/admin_kit.dart';
 import 'demo_model.dart';
@@ -1532,6 +1534,7 @@ class _ScheduleForm extends ConsumerStatefulWidget {
 class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
   final _form = GlobalKey<FormState>();
   bool _platformMode = true;
+  late String _tz;
   late DateTime? _at;
   int? _selectedSlotIdx;
   int _durationMin = 30;
@@ -1546,6 +1549,22 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
   bool _saving = false;
   String? _error;
 
+  String? get _profileTz {
+    if (!ref.exists(authNotifierProvider)) return null;
+    final raw = J.s(ref.read(authNotifierProvider).user?.timezone).trim();
+    return ScheduleTz.isValid(raw) ? raw : null;
+  }
+
+  String? get _prospectTz {
+    final av = widget.request['latest_availability'];
+    if (av is Map) {
+      final subTz = J.s(av['submitted_timezone']).trim();
+      if (ScheduleTz.isValid(subTz)) return subTz;
+    }
+    final reqTz = J.s(widget.request['timezone']).trim();
+    return ScheduleTz.isValid(reqTz) ? reqTz : null;
+  }
+
   List<Map<String, dynamic>> _submittedSlots() {
     final av = widget.request['latest_availability'];
     if (av is Map && J.s(av['status']) == 'submitted' && av['submitted_slots'] is List) {
@@ -1554,9 +1573,21 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
     return const [];
   }
 
+  DateTime? _parseSubmittedSlotWallClock(Map<String, dynamic> slot) {
+    final d = J.s(slot['date']);
+    final s = J.s(slot['start']);
+    final parsed = DateTime.tryParse('${d}T$s:00');
+    if (parsed == null) return null;
+    final av = widget.request['latest_availability'];
+    final sourceTz = av is Map ? J.s(av['submitted_timezone']).trim() : '';
+    final validSrc = ScheduleTz.isValid(sourceTz) ? sourceTz : _tz;
+    return ScheduleTz.convertWallClock(parsed, validSrc, _tz);
+  }
+
   @override
   void initState() {
     super.initState();
+    _tz = ScheduleTz.defaultZone(_profileTz, fallbackTz: _prospectTz);
     final submitted = _submittedSlots();
     if (widget.prefillSlot != null) {
       final idx = submitted.indexWhere(
@@ -1570,19 +1601,18 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
       _selectedSlotIdx = 0;
     }
     _at = _initialDateTime(submitted);
-    _hostId = ref.read(authNotifierProvider).user?.id;
+    _hostId = ref.exists(authNotifierProvider) ? ref.read(authNotifierProvider).user?.id : null;
     _loadHosts();
   }
 
   DateTime? _initialDateTime(List<Map<String, dynamic>> submitted) {
     final slot = widget.prefillSlot ?? (submitted.isNotEmpty ? submitted.first : null);
     if (slot != null) {
-      final d = J.s(slot['date']);
-      final s = J.s(slot['start']);
-      final parsed = DateTime.tryParse('${d}T$s:00');
-      if (parsed != null) return parsed;
+      final converted = _parseSubmittedSlotWallClock(slot);
+      if (converted != null) return converted;
     }
-    return J.date(widget.request['demo_scheduled_at']);
+    final existing = J.date(widget.request['demo_scheduled_at']);
+    return existing == null ? null : ScheduleTz.utcToWallClock(existing, _tz);
   }
 
   @override
@@ -1620,9 +1650,14 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
   }
 
   Future<void> _pick() async {
-    final now = DateTime.now();
-    final base = _at ?? DateTime(now.year, now.month, now.day + 1, 10);
-    final day = await showDatePicker(context: context, initialDate: base.isBefore(now) ? now : base, firstDate: DateTime(now.year - 1), lastDate: DateTime(now.year + 2));
+    final nowWall = ScheduleTz.utcToWallClock(DateTime.now().toUtc(), _tz);
+    final base = _at ?? DateTime(nowWall.year, nowWall.month, nowWall.day + 1, 10);
+    final day = await showDatePicker(
+      context: context,
+      initialDate: base.isBefore(nowWall) ? nowWall : base,
+      firstDate: DateTime(nowWall.year - 1),
+      lastDate: DateTime(nowWall.year + 2),
+    );
     if (day == null || !mounted) return;
     final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(base));
     if (time == null) return;
@@ -1645,11 +1680,13 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
     });
     try {
       final client = ref.read(apiClientProvider);
+      final startUtc = ScheduleTz.wallClockToUtc(_at!, _tz);
       if (_platformMode) {
-        final end = _at!.add(Duration(minutes: _durationMin));
+        final endUtc = startUtc.add(Duration(minutes: _durationMin));
         await client.post('/demo-requests/${J.i(widget.request['id'])}/schedule-meeting', data: {
-          'scheduled_start': _at!.toUtc().toIso8601String(),
-          'scheduled_end': end.toUtc().toIso8601String(),
+          'scheduled_start': startUtc.toIso8601String(),
+          'scheduled_end': endUtc.toIso8601String(),
+          'host_timezone': _tz,
           'title': _title.text.trim(),
           'host_id': _hostId,
           'require_approval': _requireApproval,
@@ -1659,7 +1696,7 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
         adminToast(context, fr ? 'Réunion créée et lien envoyé au prospect' : 'Meeting scheduled and link emailed');
       } else {
         await client.patch('/demo-requests/${J.i(widget.request['id'])}/schedule', data: {
-          'demo_scheduled_at': _at!.toUtc().toIso8601String(),
+          'demo_scheduled_at': startUtc.toIso8601String(),
           'teacher_id': _teacher,
           'meeting_link': _link.text.trim(),
           if (_notes.text.trim().isNotEmpty) 'notes': _notes.text.trim(),
@@ -1682,6 +1719,9 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
   Widget build(BuildContext context) {
     final fr = context.isFrench;
     final r = widget.request;
+    final prospectTz = _prospectTz;
+    final startUtc = _at == null ? null : ScheduleTz.wallClockToUtc(_at!, _tz);
+
     return Form(
       key: _form,
       child: AdminPanel(
@@ -1726,10 +1766,10 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
                               color: _selectedSlotIdx == i ? AppColors.adminAccent : AppColors.text,
                             ),
                             onSelected: (_) {
-                              final parsed = DateTime.tryParse('${J.s(submitted[i]['date'])}T${J.s(submitted[i]['start'])}:00');
+                              final converted = _parseSubmittedSlotWallClock(submitted[i]);
                               setState(() {
                                 _selectedSlotIdx = i;
-                                if (parsed != null) _at = parsed;
+                                if (converted != null) _at = converted;
                               });
                             },
                           ),
@@ -1754,9 +1794,64 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
             borderRadius: BorderRadius.circular(10),
             child: InputDecorator(
               decoration: adminInputDecoration(fr ? 'Date et heure' : 'Date and time', suffix: const Icon(Icons.event, color: AppColors.textMuted)),
-              child: Text(_at == null ? (fr ? 'Choisir' : 'Pick') : AdminFmt.dateTime(context, _at), style: AppTypography.bodyMedium),
+              child: Text(
+                _at == null ? (fr ? 'Choisir' : 'Pick') : ScheduleTz.formatWallClock(_at!, _tz, fr: fr),
+                style: AppTypography.bodyMedium,
+              ),
             ),
           ),
+          const SizedBox(height: 12),
+          TimezonePickerField(
+            value: _tz,
+            label: fr ? 'Fuseau horaire de la planification' : 'Scheduling timezone',
+            suggestedZone: prospectTz,
+            suggestedLabel: fr ? 'Fuseau du prospect' : 'Prospect timezone',
+            profileZone: _profileTz,
+            onChanged: (v) => setState(() => _tz = v),
+          ),
+          if (_at != null && startUtc != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: _brandSoft,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _brandBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.schedule, size: 15, color: _brandNavy),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          '${fr ? 'Heure choisie' : 'Selected time'} (${ScheduleTz.displayName(_tz)}): ${ScheduleTz.formatWallClock(_at!, _tz, fr: fr)}',
+                          style: AppTypography.caption.copyWith(color: _brandNavy, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (prospectTz != null && prospectTz != _tz) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.person_outline, size: 15, color: _brandMuted),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            '${fr ? 'Heure locale du prospect' : 'Prospect local time'} (${ScheduleTz.displayName(prospectTz)}): ${ScheduleTz.formatInstantInZone(startUtc, prospectTz, fr: fr)}',
+                            style: AppTypography.caption.copyWith(color: _brandMuted, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           if (_platformMode) ...[
             AdminField(label: fr ? 'Titre' : 'Title', controller: _title),
@@ -1848,9 +1943,9 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
       end: const TimeOfDay(hour: 11, minute: 0),
     ),
   ];
-  late String _tz = J.s(ref.read(authNotifierProvider).user?.timezone).isNotEmpty
-      ? J.s(ref.read(authNotifierProvider).user?.timezone)
-      : 'UTC';
+  late String _tz = ScheduleTz.defaultZone(
+    ref.exists(authNotifierProvider) ? ref.read(authNotifierProvider).user?.timezone : null,
+  );
   final _note = TextEditingController();
   bool _sending = false;
   String? _error;
@@ -1960,8 +2055,10 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
   @override
   Widget build(BuildContext context) {
     final fr = context.isFrench;
-    const zones = ['UTC', 'America/Toronto', 'America/New_York', 'Europe/Paris', 'Europe/London', 'Africa/Casablanca', 'Africa/Abidjan', 'Africa/Dakar', 'Asia/Dubai'];
-    final tzList = zones.contains(_tz) ? zones : [_tz, ...zones];
+    final prospectTzRaw = J.s(widget.request['timezone']).trim();
+    final prospectTz = ScheduleTz.isValid(prospectTzRaw) ? prospectTzRaw : null;
+    final profileTzRaw = ref.exists(authNotifierProvider) ? J.s(ref.read(authNotifierProvider).user?.timezone).trim() : '';
+    final profileTz = ScheduleTz.isValid(profileTzRaw) ? profileTzRaw : null;
     return AdminPanel(
       title: fr ? 'Demander les disponibilités' : 'Ask for availability',
       subtitle: '${J.s(widget.request['full_name'])} · ${J.s(widget.request['email'])}',
@@ -1971,12 +2068,15 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
       ],
       children: [
         const SizedBox(height: 8),
-        AdminSelect<String>(
-          label: fr ? 'Fuseau horaire' : 'Timezone',
+        TimezonePickerField(
           value: _tz,
-          options: [for (final z in tzList) FilterOption<String>(z, z)],
-          onChanged: (v) => setState(() => _tz = v ?? _tz),
+          label: fr ? 'Fuseau horaire de ces créneaux' : 'Timezone for these options',
+          suggestedZone: prospectTz,
+          suggestedLabel: fr ? 'Fuseau du prospect' : 'Prospect timezone',
+          profileZone: profileTz,
+          onChanged: (v) => setState(() => _tz = v),
         ),
+        const SizedBox(height: 12),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [

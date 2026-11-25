@@ -35,7 +35,7 @@ export const FILTERS: { key: HistoryCategory | 'all'; label: string }[] = [
   { key: 'exams', label: 'Allowed exams' },
   { key: 'people', label: 'People' },
   { key: 'activity', label: 'Groups & assignments' },
-  { key: 'profile', label: 'Profile & logo' },
+  { key: 'profile', label: 'Profile & branding' },
 ];
 
 export const date = (iso: unknown) => (iso ? new Date(String(iso)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
@@ -54,7 +54,7 @@ export interface Change { label: string; from: string; to: string }
 export interface Described { title: string; changes: Change[]; facts: string[]; note: string | null; tone: 'up' | 'down' | 'neutral' | 'bad' }
 
 const FIELD_LABEL: Record<string, string> = {
-  name: 'Official name', display_name: 'Displayed name', default_language: 'Language', notes: 'Internal notes',
+  name: 'Official name', display_name: 'Displayed name', slug: 'Portal URL', default_language: 'Language', notes: 'Internal notes',
   email: 'Email', first_name: 'First name', last_name: 'Last name',
 };
 const show = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : String(v));
@@ -196,6 +196,9 @@ export function describe(item: HistoryItem): Described {
     case 'assignment_removed': out.title = 'Assignment removed'; break;
     case 'logo_changed': out.title = 'Logo changed'; break;
     case 'logo_removed': out.title = 'Logo removed'; break;
+    case 'cover_changed': out.title = 'Portal cover image changed'; break;
+    case 'cover_removed': out.title = 'Portal cover image removed'; break;
+    case 'branding_changed': out.title = 'Portal branding updated'; break;
     case 'settings_changed': out.title = 'Company settings changed (by the company)'; break;
     default: out.title = item.action.replace(/_/g, ' ');
   }

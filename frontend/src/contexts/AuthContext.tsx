@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { App as AntApp } from 'antd';
 import i18n from '../i18n';
 import type { DeviceSession } from '../utils/devices';
+import type { PortalBranding } from '../utils/portalTheme';
 
 interface User {
     id: number;
@@ -40,6 +41,8 @@ export interface OrgBrand {
     days_left: number;
     expiring_soon: boolean;
     logo_url: string | null;
+    cover_url?: string | null;
+    branding?: PortalBranding;
 }
 
 export interface LoginResult {
