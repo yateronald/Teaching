@@ -50,6 +50,7 @@ export interface LoginResult {
     error?: string;
     code?: string;
     message?: string;
+    org_name?: string;
     locked_until?: string;
     failed_attempts?: number;
     /** SESSION_LIMIT / SESSION_TAKEOVER_BLOCKED: the devices holding the account. */
@@ -64,7 +65,7 @@ interface AuthContextType {
     user: User | null;
     token: string | null;
     loading: boolean;
-    login: (email: string, password: string, options?: { signOutOthers?: boolean }) => Promise<LoginResult>;
+    login: (email: string, password: string, options?: { signOutOthers?: boolean; orgSlug?: string }) => Promise<LoginResult>;
     logout: () => Promise<void>;
     updateProfile: (profileData: Partial<User>) => Promise<{ success: boolean; error?: string }>;
     changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
@@ -177,7 +178,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         } catch { /* silent */ }
     };
 
-    const login = async (email: string, password: string, options: { signOutOthers?: boolean } = {}): Promise<LoginResult> => {
+    const login = async (email: string, password: string, options: { signOutOthers?: boolean; orgSlug?: string } = {}): Promise<LoginResult> => {
         try {
             const response = await fetch(`${API_BASE_URL}/auth/login`, {
                 method: 'POST',
@@ -185,7 +186,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ email, password, ...(options.signOutOthers ? { sign_out_others: true } : {}) })
+                body: JSON.stringify({
+                    email,
+                    password,
+                    ...(options.signOutOthers ? { sign_out_others: true } : {}),
+                    ...(options.orgSlug ? { org_slug: options.orgSlug } : {}),
+                })
             });
 
             const data = await response.json();
@@ -204,12 +210,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 return { success: true, signed_out_others: data.signed_out_others };
             } else {
                 // Don't show message here for security errors - let the component handle it
-                if (data.code === 'ACCOUNT_DISABLED' || data.code === 'ACCOUNT_LOCKED' || data.code === 'ORG_SUSPENDED' || data.code === 'LEARNER_ACCOUNT') {
+                if (data.code === 'ACCOUNT_DISABLED' || data.code === 'ACCOUNT_LOCKED' || data.code === 'ORG_SUSPENDED' || data.code === 'LEARNER_ACCOUNT' || data.code === 'NOT_ORG_MEMBER' || data.code === 'ORG_NOT_FOUND') {
                     return {
                         success: false,
                         error: data.error,
                         code: data.code,
                         message: data.message,
+                        org_name: data.org_name,
                         locked_until: data.locked_until,
                         failed_attempts: data.failed_attempts
                     };

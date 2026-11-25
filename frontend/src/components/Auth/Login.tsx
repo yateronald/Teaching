@@ -9,6 +9,7 @@ import {
   ArrowLeftOutlined,
   ArrowRightOutlined,
   StarFilled,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
@@ -51,6 +52,7 @@ const Login: React.FC = () => {
   const [found, setFound] = useState<Presentation | null>(null);
   const [identifying, setIdentifying] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [orgError, setOrgError] = useState<string | null>(null);
   const { login, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -113,6 +115,7 @@ const Login: React.FC = () => {
 
   // A company's sign-in address shows its name and logo from the first step.
   useEffect(() => {
+    setOrgError(null);
     if (!slug) { setCompanyLookup(null); return; }
     let alive = true;
     const controller = new AbortController();
@@ -130,10 +133,15 @@ const Login: React.FC = () => {
     return () => { alive = false; window.clearTimeout(timeout); controller.abort(); };
   }, [slug]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // What the page shows. On a company's own address, the neutral answer keeps
-  // that company's welcome (it tells nothing either way).
+  // What the page shows. On a company's own address (/o/<slug>), always keep
+  // that company's branding and never swap to a different organization.
   const shown: Presentation = step === 'password' && found
-    ? (found.audience === 'platform' && slugCompany ? { audience: 'company_learner', company: slugCompany } : found)
+    ? (slugCompany
+      ? {
+          audience: found.audience === 'company_manager' ? 'company_manager' : 'company_learner',
+          company: slugCompany,
+        }
+      : found)
     : (slugCompany ? { audience: 'company_learner', company: slugCompany } : { audience: 'platform' });
   const company = shown.company || null;
   const welcome = welcomeFor(shown, tr);
@@ -161,18 +169,48 @@ const Login: React.FC = () => {
     }
   }, [isAuthenticated, user, navigate, from, fromFull]);
 
-  /** Step 1 → 2: which space this email signs in to. Any failure (network, rate
-   *  limit) still moves on, with the neutral welcome: sign-in never depends on it. */
+  const orgMismatchText = (orgName?: string) => {
+    const label = orgName || slugCompany?.name || slug || tr('this organization', 'cette organisation');
+    return tr(
+      `This email address is not part of ${label}. Only accounts registered with ${label} can sign in through this portal.`,
+      `Cette adresse email ne fait pas partie de ${label}. Seuls les comptes enregistrés auprès de ${label} peuvent se connecter via ce portail.`
+    );
+  };
+
+  /** Step 1 -> 2: which space this email signs in to. When signing in via a
+   *  company's portal link (/o/<slug>), strictly require membership in that
+   *  organization before advancing to the password step. */
   const identify = async (raw: string) => {
     const clean = raw.trim();
     setIdentifying(true);
+    setOrgError(null);
     let p: Presentation = { audience: 'platform' };
+    let ok = false;
     try {
       const r = await fetch(`${API_BASE}/auth/identify`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: clean }),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: clean,
+          ...(slugCompany ? { org_slug: slugCompany.slug } : {}),
+        }),
       });
-      if (r.ok) p = readPresentation(await r.json());
+      if (r.ok) {
+        ok = true;
+        p = readPresentation(await r.json());
+      }
     } catch { /* neutral welcome */ }
+
+    if (slugCompany) {
+      const matchesSlug = p.orgMember === true
+        || (!!p.company?.slug && p.company.slug.toLowerCase() === slugCompany.slug.toLowerCase());
+      if (p.orgMismatch || (ok && !matchesSlug)) {
+        setOrgError(orgMismatchText(p.orgName || slugCompany.name));
+        setIdentifying(false);
+        return;
+      }
+    }
+
     followCompanyLanguage(p.company);
     setEmail(clean);
     setFound(p);
@@ -182,6 +220,7 @@ const Login: React.FC = () => {
 
   const backToEmail = () => {
     form.setFieldsValue({ email, password: '' });
+    setOrgError(null);
     setStep('email');
     setFound(null);
   };
@@ -189,9 +228,19 @@ const Login: React.FC = () => {
   const signIn = async (password: string) => {
     setLoading(true);
     try {
-      const result = await login(email, password);
+      const result = await login(email, password, { orgSlug: slugCompany?.slug });
       if (result.success) {
         // Navigation handled by useEffect
+      } else if (result.code === 'NOT_ORG_MEMBER') {
+        form.setFieldsValue({ email, password: '' });
+        setStep('email');
+        setFound(null);
+        setOrgError(orgMismatchText(result.org_name || slugCompany?.name));
+      } else if (result.code === 'ORG_NOT_FOUND') {
+        form.setFieldsValue({ email, password: '' });
+        setStep('email');
+        setFound(null);
+        setOrgError(result.message || tr('This organization portal was not found.', 'Ce portail d’organisation est introuvable.'));
       } else if (result.code === 'ACCOUNT_DISABLED') {
         setAccountDisabledData({ type: 'disabled', message: result.message });
         setAccountDisabledOpen(true);
@@ -236,10 +285,16 @@ const Login: React.FC = () => {
   const signOutOtherDevices = async () => {
     setTakingOver(true);
     try {
-      const result = await login(email, form.getFieldValue('password'), { signOutOthers: true });
+      const result = await login(email, form.getFieldValue('password'), { signOutOthers: true, orgSlug: slugCompany?.slug });
       if (result.success) {
         setDeviceLimit(null);
         if (result.signed_out_others) message.info(t('login.devices.done'));
+      } else if (result.code === 'NOT_ORG_MEMBER') {
+        setDeviceLimit(null);
+        form.setFieldsValue({ email, password: '' });
+        setStep('email');
+        setFound(null);
+        setOrgError(orgMismatchText(result.org_name || slugCompany?.name));
       } else if (result.code === 'SESSION_TAKEOVER_BLOCKED') {
         setDeviceLimit({ limit: result.limit || 2, devices: result.sessions || [], canSignOutOthers: false });
       } else {
@@ -264,9 +319,24 @@ const Login: React.FC = () => {
   const sideKey = `${shown.audience}:${company?.slug || ''}`;
 
   const formNode = (
-    <Form form={form} name="login" onFinish={onFinish} layout="vertical" size="large" className="login-form" requiredMark={false}>
+    <Form
+      form={form}
+      name="login"
+      onFinish={onFinish}
+      onValuesChange={(changed) => { if ('email' in changed && orgError) setOrgError(null); }}
+      layout="vertical"
+      size="large"
+      className="login-form"
+      requiredMark={false}
+    >
       {step === 'email' ? (
         <>
+          {orgError && (
+            <div className="cp-inline-error" role="alert">
+              <ExclamationCircleOutlined />
+              <span>{orgError}</span>
+            </div>
+          )}
           <Form.Item
             name="email"
             label={t('login.email_label')}

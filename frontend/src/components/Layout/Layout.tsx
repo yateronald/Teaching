@@ -50,7 +50,7 @@ import MeetingLobbyWatcher from '../Meeting/MeetingLobbyWatcher';
 import OrgStateBanner from '../Org/OrgStateBanner';
 import { useTr } from '../../utils/useTr';
 import { apiAsset } from '../../utils/apiAsset';
-import { shellAccentVars } from '../../utils/portalTheme';
+import { normalizePortalBranding, portalAntdTheme, shellAccentVars } from '../../utils/portalTheme';
 import './Layout.css';
 
 /* ══════════════════════════════════════════
@@ -568,13 +568,28 @@ const Layout: React.FC = () => {
     const meta = roleMetaFor(role, tr);
     const bilingual = role === 'candidate' || role === 'org_admin';
     const org = user?.organization || null;
-    const shellAccent = org ? shellAccentVars(org.branding?.primary_color) : undefined;
+    const orgBranding = org ? normalizePortalBranding(org.branding) : null;
+    const shellAccent = orgBranding ? shellAccentVars(orgBranding) : undefined;
     const brand = org ? {
         name: org.name,
         logoUrl: org.logo_url ? apiAsset(org.logo_url) : null,
         tagline: org.branding?.tagline || tr('Exam preparation', 'Préparation aux examens'),
     } : null;
     const isMobile = r.shouldUseDrawer;
+
+    // Apply portal CSS custom properties to documentElement so portaled AntD
+    // modals, drawers, and dropdowns inherit the organization's brand palette.
+    useEffect(() => {
+        if (!shellAccent) return;
+        const rootStyle = document.documentElement.style;
+        const entries = Object.entries(shellAccent);
+        for (const [k, v] of entries) rootStyle.setProperty(k, v);
+        document.documentElement.dataset.companyPortal = '1';
+        return () => {
+            for (const [k] of entries) rootStyle.removeProperty(k);
+            delete document.documentElement.dataset.companyPortal;
+        };
+    }, [shellAccent]);
 
     // Check if user is currently inside any live meeting page/room
     const isMeetingRoute =
@@ -649,8 +664,8 @@ const Layout: React.FC = () => {
     const sideW = isMobile ? 0 : collapsed ? SIDEBAR_W_COLLAPSED : SIDEBAR_W;
     const showAccountName = r.width >= 1024;
 
-    return (
-        <div className={`al al-role-${role}`} style={{ '--al-sidebar-w': `${sideW}px`, ...shellAccent } as React.CSSProperties}>
+    const shellBody = (
+        <div className={`al al-role-${role}${orgBranding ? ' is-company-branded' : ''}`} style={{ '--al-sidebar-w': `${sideW}px`, ...shellAccent } as React.CSSProperties}>
             {noticeHolder}
             <a href="#al-main" className="al-skip">{bilingual ? tr('Skip to content', 'Aller au contenu') : 'Skip to content'}</a>
 
@@ -661,7 +676,7 @@ const Layout: React.FC = () => {
                     onClose={() => setDrawerOpen(false)}
                     closable={false}
                     width={Math.min(288, r.width - 48)}
-                    rootClassName={`al-drawer al-role-${role}`}
+                    rootClassName={`al-drawer al-role-${role}${orgBranding ? ' is-company-branded' : ''}`}
                     style={shellAccent}
                     styles={{ body: { padding: 0 } }}
                 >
@@ -743,7 +758,7 @@ const Layout: React.FC = () => {
                         placement="bottomRight"
                         menu={{ items: accountItems }}
                         popupRender={menu => (
-                            <div className={`al-pop al-role-${role}`} style={shellAccent}>
+                            <div className={`al-pop al-role-${role}${orgBranding ? ' is-company-branded' : ''}`} style={shellAccent}>
                                 <div className="al-pop-head">
                                     <Avatar user={user} token={token} size={36} />
                                     <div className="al-pop-who">
@@ -775,21 +790,28 @@ const Layout: React.FC = () => {
                     {org && bilingual && <OrgStateBanner org={org} manager={role === 'org_admin'} />}
                     {/* Pages are loaded on demand: keep the shell on screen while one loads. */}
                     <Suspense fallback={<div className="app-route-loading is-inner" role="status" aria-label="Loading" />}>
-                        {bilingual ? (
-                            <ConfigProvider locale={lang === 'fr' ? frFR : enGB}
-                                theme={org?.branding?.primary_color
-                                    ? { token: { colorPrimary: org.branding.primary_color } }
-                                    : role === 'org_admin'
-                                        ? { token: { colorPrimary: '#0f766e' } }
-                                        : undefined}>
-                                <Outlet />
-                            </ConfigProvider>
-                        ) : <Outlet />}
+                        <Outlet />
                     </Suspense>
                 </main>
             </div>
         </div>
     );
+
+    if (bilingual) {
+        return (
+            <ConfigProvider
+                locale={lang === 'fr' ? frFR : enGB}
+                theme={orgBranding
+                    ? portalAntdTheme(orgBranding)
+                    : role === 'org_admin'
+                        ? { token: { colorPrimary: '#0f766e' } }
+                        : undefined}
+            >
+                {shellBody}
+            </ConfigProvider>
+        );
+    }
+    return shellBody;
 };
 
 export default Layout;

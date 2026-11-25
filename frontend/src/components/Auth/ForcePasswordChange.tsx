@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Form, Input, Button } from 'antd';
+import { Form, Input, Button, ConfigProvider } from 'antd';
 import { LockOutlined, CheckOutlined, LogoutOutlined, WarningOutlined, KeyOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { ASSET_PATHS } from '../../utils/assets';
 import { apiAsset } from '../../utils/apiAsset';
+import { normalizePortalBranding, portalAntdTheme, shellAccentVars } from '../../utils/portalTheme';
 import { homeFor } from '../../utils/roles';
 import { useTr } from '../../utils/useTr';
 import './ForcePasswordChange.css';
@@ -86,8 +87,12 @@ const ForcePasswordChange: React.FC = () => {
     ? `${company.name} · ${user?.role === 'org_admin' ? tr('Company space', 'Espace entreprise') : tr('Exam preparation', 'Préparation aux examens')}`
     : 'Learn French with Natives';
 
-  return (
-    <div className={`fpc-page${company ? ' fpc-page--company' : ''}`}>
+  const companyBranding = company ? normalizePortalBranding(company.branding) : null;
+  const pageNode = (
+    <div
+      className={`fpc-page${company ? ' fpc-page--company' : ''}`}
+      style={companyBranding ? (shellAccentVars(companyBranding) as React.CSSProperties) : undefined}
+    >
       <header className="fpc-top">
         <span className="fpc-brand">
           {company ? (
@@ -190,12 +195,23 @@ const ForcePasswordChange: React.FC = () => {
 
         <p className="fpc-foot">
           {company
-            ? <>{tr('Powered by', 'Propulsé par')} <strong>Learn French with Natives</strong></>
+            ? (companyBranding?.hide_powered_by
+              ? (companyBranding.footer_text || `© ${new Date().getFullYear()} ${company.name}`)
+              : <>{tr('Powered by', 'Propulsé par')} <strong>Learn French with Natives</strong></>)
             : <>© {new Date().getFullYear()} Learn French with Natives</>}
         </p>
       </main>
     </div>
   );
+
+  if (companyBranding) {
+    return (
+      <ConfigProvider theme={portalAntdTheme(companyBranding)}>
+        {pageNode}
+      </ConfigProvider>
+    );
+  }
+  return pageNode;
 };
 
 export default ForcePasswordChange;

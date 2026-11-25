@@ -42,6 +42,7 @@ const OrgDashboard: React.FC = () => {
   const firstName = user?.first_name || '';
   const signInUrl = `${window.location.origin}/o/${c.slug}`;
   const brandPrimary = c.brand.branding?.primary_color || '#0F766E';
+  const brandSecondary = c.brand.branding?.secondary_color || brandPrimary;
 
   return (
     <div className="og is-company">
@@ -72,10 +73,10 @@ const OrgDashboard: React.FC = () => {
           note={tr(`until ${fmtDate(c.access_ends_at, locale)}`, `jusqu’au ${fmtDate(c.access_ends_at, locale)}`)} />
       </div>
 
-      <section className="og-card" style={{ marginBottom: 4 }}>
+      <section className="og-card" style={{ marginBottom: 4, borderColor: 'var(--x-accent-line)' }}>
         <div className="og-card-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-            <span style={{ width: 12, height: 34, borderRadius: 6, background: brandPrimary, flexShrink: 0 }} aria-hidden="true" />
+            <span style={{ width: 12, height: 34, borderRadius: 6, background: `linear-gradient(180deg, ${brandPrimary}, ${brandSecondary})`, flexShrink: 0 }} aria-hidden="true" />
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <strong style={{ fontSize: 14, color: '#0F172A' }}>{tr('Your branded learner portal', 'Votre portail apprenant personnalisé')}</strong>

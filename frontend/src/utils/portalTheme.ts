@@ -1,4 +1,5 @@
 import type React from 'react';
+import type { ThemeConfig } from 'antd';
 
 export type LoginLayout = 'split' | 'centered' | 'minimal';
 export type HeroStyle = 'geometric' | 'gradient' | 'solid' | 'cover';
@@ -120,6 +121,11 @@ const SURFACE_MAP: Record<SurfaceTone, string> = {
   clean: '#F8FAFC',
   warm: '#FAF8F4',
   slate: '#EFF3F8',
+};
+const SHELL_SURFACE_MAP: Record<SurfaceTone, string> = {
+  clean: '#F4F6F8',
+  warm: '#F7F4EE',
+  slate: '#EDF2F7',
 };
 
 export function validateHex(val: string): boolean {
@@ -277,12 +283,82 @@ export function portalCssVars(b: PortalBranding): React.CSSProperties {
   } as React.CSSProperties;
 }
 
-/** Shell accent tokens for the signed-in Layout wrapper. */
-export function shellAccentVars(hex?: string | null): React.CSSProperties | undefined {
-  if (!hex || !HEX_RE.test(hex)) return undefined;
+/** Ant Design ConfigProvider theme matching the organization's portal palette. */
+export function portalAntdTheme(branding: PortalBranding, extraToken?: Record<string, unknown>): ThemeConfig {
+  const primary = HEX_RE.test(branding.primary_color) ? branding.primary_color : DEFAULT_PORTAL_BRANDING.primary_color;
+  const hoverColor = relativeLuminance(primary) > 0.55
+    ? mixHex(primary, '#000000', 0.14)
+    : mixHex(primary, '#070D19', 0.22);
+  const borderRadius = branding.button_style === 'sharp' ? 6 : 8;
+  const btnRadius = branding.button_style === 'pill' ? 999 : borderRadius;
+
   return {
-    '--al-accent': hex,
-    '--al-accent-soft': hexToRgba(hex, 0.09),
-    '--al-accent-line': hexToRgba(hex, 0.26),
-  } as React.CSSProperties;
+    token: {
+      colorPrimary: primary,
+      colorLink: primary,
+      colorLinkHover: hoverColor,
+      borderRadius,
+      ...extraToken,
+    },
+    components: {
+      Button: {
+        borderRadius: btnRadius,
+        primaryColor: contrastForeground(primary),
+      },
+    },
+  };
+}
+
+/** Shell accent & signed-in workspace CSS variables from the company's branding. */
+export function shellAccentVars(brandingOrHex?: PortalBranding | string | null): Record<string, string> | undefined {
+  if (!brandingOrHex) return undefined;
+  const b: PortalBranding = typeof brandingOrHex === 'string'
+    ? { ...DEFAULT_PORTAL_BRANDING, primary_color: brandingOrHex }
+    : normalizePortalBranding(brandingOrHex);
+  const primary = HEX_RE.test(b.primary_color) ? b.primary_color : DEFAULT_PORTAL_BRANDING.primary_color;
+  if (typeof brandingOrHex === 'string' && !HEX_RE.test(brandingOrHex)) return undefined;
+  const secondary = HEX_RE.test(b.secondary_color) ? b.secondary_color : DEFAULT_PORTAL_BRANDING.secondary_color;
+  const hoverColor = relativeLuminance(primary) > 0.55
+    ? mixHex(primary, '#000000', 0.14)
+    : mixHex(primary, '#070D19', 0.22);
+  const accentDeep = relativeLuminance(primary) > 0.35
+    ? heroShade(primary, 0.28)
+    : primary;
+  const accentActive = heroShade(primary, 0.42);
+  const btnRadius = b.button_style === 'pill' ? '999px' : b.button_style === 'sharp' ? '6px' : '8px';
+
+  return {
+    '--al-accent': primary,
+    '--al-accent-deep': accentDeep,
+    '--al-accent-fg': contrastForeground(primary),
+    '--al-accent-soft': hexToRgba(primary, 0.09),
+    '--al-accent-line': hexToRgba(primary, 0.26),
+    '--al-secondary': secondary,
+    '--al-secondary-soft': hexToRgba(secondary, 0.12),
+    '--al-page': SHELL_SURFACE_MAP[b.surface_tone] || SHELL_SURFACE_MAP.clean,
+    '--al-brand-bar': `linear-gradient(90deg, ${primary}, ${secondary})`,
+    '--al-btn-radius': btnRadius,
+    '--org-accent': primary,
+    '--org-accent-deep': accentDeep,
+    '--org-accent-hover': hoverColor,
+    '--org-accent-active': accentActive,
+    '--org-accent-fg': contrastForeground(primary),
+    '--org-accent-soft': hexToRgba(primary, 0.09),
+    '--org-accent-line': hexToRgba(primary, 0.28),
+    '--org-secondary': secondary,
+    '--org-secondary-soft': hexToRgba(secondary, 0.12),
+    '--org-hero-deep': heroShade(primary, 0.56),
+    '--org-hero-mid': heroShade(primary, 0.30),
+    '--org-hero-glow': hexToRgba(secondary, 0.32),
+    '--org-hero-accent': mixHex(secondary, '#FFFFFF', 0.48),
+    '--org-hero-shadow': hexToRgba(primary, 0.45),
+    '--org-ep-tint-a': hexToRgba(primary, 0.10),
+    '--org-ep-tint-b': hexToRgba(secondary, 0.07),
+    '--org-ep-bg-start': mixHex(primary, '#FFFFFF', 0.94),
+    '--org-ep-grid': hexToRgba(primary, 0.06),
+    '--org-pf-cover': `radial-gradient(rgba(255, 255, 255, 0.16) 1px, transparent 1.2px) 0 0 / 14px 14px, linear-gradient(135deg, ${heroShade(primary, 0.45)} 0%, ${primary} 58%, ${secondary} 100%)`,
+    '--fp-accent': primary,
+    '--fp-accent-dark': hoverColor,
+    '--fp-paper': SURFACE_MAP[b.surface_tone] || SURFACE_MAP.clean,
+  };
 }

@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
+import { normalizePortalBranding, portalAntdTheme } from '../../utils/portalTheme';
 import { useTr } from '../../utils/useTr';
 import ExamGoalEditor from './ExamGoalEditor';
 import {
@@ -216,8 +217,12 @@ const CandidateDashboard: React.FC = () => {
     const endedItems = data.access.items.filter(i => !i.active);
     const weakest = data.level.weakest ? SKILLS[data.level.weakest] : null;
 
+    const theme = user?.organization
+        ? portalAntdTheme(normalizePortalBranding(user.organization.branding), { borderRadius: 8 })
+        : { token: { colorPrimary: '#0e7490', borderRadius: 8 } };
+
     return (
-        <ConfigProvider theme={{ token: { colorPrimary: '#0e7490', borderRadius: 8 } }}>
+        <ConfigProvider theme={theme}>
             <div className="cx">
                 {/* ── Greeting ── */}
                 <header className="cx-head">

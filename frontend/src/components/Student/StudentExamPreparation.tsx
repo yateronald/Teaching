@@ -18,6 +18,7 @@ import EOAnalytics from './EOAnalytics';
 import EOGlobalAnalytics from './EOGlobalAnalytics';
 import { useAuth } from '../../contexts/AuthContext';
 import { cefrOf } from '../ExamSim/examModel';
+import { normalizePortalBranding, portalAntdTheme } from '../../utils/portalTheme';
 import { useTr } from '../../utils/useTr';
 import './StudentExamPreparation.css';
 
@@ -439,9 +440,13 @@ const StudentExamPreparation: React.FC = () => {
     );
   };
 
+  const examTheme = user?.organization
+    ? portalAntdTheme(normalizePortalBranding(user.organization.branding), { fontSize: 13 })
+    : { token: { colorPrimary: isCandidate ? '#0e7490' : '#047857', fontSize: 13 } };
+
   /* ═══════════ RENDER ═══════════ */
   return (
-    <ConfigProvider theme={{ token: { colorPrimary: isCandidate ? '#0e7490' : '#047857', fontSize: 13 } }}>
+    <ConfigProvider theme={examTheme}>
       <div className={`ep${isCandidate ? ' is-candidate' : ''}${skill ? ` ep-in-${skill.key}` : ''}`}>
         {contextHolder}
 
@@ -449,7 +454,7 @@ const StudentExamPreparation: React.FC = () => {
         {path.length === 0 && (
           <header className="ep-hero">
             <div className="ep-hero-main">
-              <div className="ep-overline">{tr('Exam preparation', 'Préparation aux examens')}</div>
+              <div className="ep-overline">{user?.organization ? `${user.organization.name} · ${tr('Exam preparation', 'Préparation aux examens')}` : tr('Exam preparation', 'Préparation aux examens')}</div>
               <h1 className="ep-title">TCF Canada</h1>
               <p className="ep-subtitle">{tr('Practise the four skills of the exam in the official format.', 'Entraînez-vous aux quatre compétences de l’examen, au format officiel.')} {tr(`${who.charAt(0).toUpperCase()}${who.slice(1)} decides which parts are open to you.`, `${who.charAt(0).toUpperCase()}${who.slice(1)} décide des parties qui vous sont ouvertes.`)}</p>
               {!treeLoading && !treeError && (

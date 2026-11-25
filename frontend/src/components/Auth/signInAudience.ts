@@ -7,8 +7,8 @@
 import { normalizePortalBranding } from '../../utils/portalTheme';
 import type { PortalBranding } from '../../utils/portalTheme';
 
-export type Audience = 'platform' | 'exam' | 'student' | 'teacher' | 'company_learner' | 'company_manager';
-export const AUDIENCES: Audience[] = ['platform', 'exam', 'student', 'teacher', 'company_learner', 'company_manager'];
+export type Audience = 'platform' | 'exam' | 'student' | 'teacher' | 'company_learner' | 'company_manager' | 'org_mismatch';
+export const AUDIENCES: Audience[] = ['platform', 'exam', 'student', 'teacher', 'company_learner', 'company_manager', 'org_mismatch'];
 
 /** A company's public branding (also served for its own sign-in page, /o/<slug>). */
 export interface CompanyBrand {
@@ -19,7 +19,13 @@ export interface CompanyBrand {
   default_language: 'fr' | 'en';
   branding?: PortalBranding;
 }
-export interface Presentation { audience: Audience; company?: CompanyBrand | null }
+export interface Presentation {
+  audience: Audience;
+  company?: CompanyBrand | null;
+  orgMember?: boolean;
+  orgMismatch?: boolean;
+  orgName?: string;
+}
 
 type Tr = (en: string, fr: string) => string;
 
@@ -141,8 +147,22 @@ export function emailStepFor(company: CompanyBrand | null, tr: Tr) {
 
 /** Only a well-formed answer is trusted; anything else reads as the neutral welcome. */
 export function readPresentation(data: unknown): Presentation {
-  const d = (data && typeof data === 'object' ? data : {}) as { audience?: unknown; company?: Partial<CompanyBrand> | null };
+  const d = (data && typeof data === 'object' ? data : {}) as {
+    audience?: unknown;
+    company?: Partial<CompanyBrand> | null;
+    org_member?: unknown;
+    org_name?: unknown;
+  };
   const audience = AUDIENCES.includes(d.audience as Audience) ? (d.audience as Audience) : 'platform';
+  if (audience === 'org_mismatch' || d.org_member === false) {
+    return {
+      audience: 'platform',
+      company: null,
+      orgMember: false,
+      orgMismatch: true,
+      orgName: typeof d.org_name === 'string' ? d.org_name : undefined,
+    };
+  }
   const c = d.company;
   const company: CompanyBrand | null = c && typeof c.name === 'string' && typeof c.slug === 'string'
     ? {
@@ -155,5 +175,9 @@ export function readPresentation(data: unknown): Presentation {
     }
     : null;
   if ((audience === 'company_learner' || audience === 'company_manager') && !company) return { audience: 'platform' };
-  return { audience, company };
+  return {
+    audience,
+    company,
+    ...(d.org_member === true ? { orgMember: true } : {}),
+  };
 }

@@ -26,6 +26,20 @@
 .al-role-org_admin { --al-accent: #0f766e; --al-accent-soft: #f0fdfa; --al-accent-line: #99f6e4; }
 
 .al { min-height: 100vh; background: var(--al-page); }
+.al.is-company-branded .al-sidebar::before,
+.al.is-company-branded .al-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--al-brand-bar, var(--al-accent));
+  z-index: 3;
+  pointer-events: none;
+}
+.al.is-company-branded .al-brand-mark.is-company { border-color: var(--al-accent-line); }
+.al.is-company-branded .al-portal { border: 1px solid var(--al-accent-line); }
 
 .al-skip {
   position: fixed;

@@ -36,11 +36,15 @@ function withoutPassword(user) {
  * neutral answer. POST, so the email stays out of URLs and logs; rate limited
  * per address and per email in server.js.
  */
-router.post('/identify', [body('email').isString().trim().isLength({ max: 254 }).isEmail().normalizeEmail()], async (req, res) => {
+router.post('/identify', [
+    (req, _res, next) => { req.typedEmail = String(req.body?.email || '').trim().slice(0, 254); next(); },
+    body('email').isString().trim().isLength({ max: 254 }).isEmail().normalizeEmail(),
+], async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (!validationResult(req).isEmpty()) return res.status(400).json({ error: 'Enter a valid email address.', code: 'BAD_EMAIL' });
     try {
-        res.json(await hints.presentationFor(req.db, req.body.email));
+        const orgSlug = typeof req.body?.org_slug === 'string' ? req.body.org_slug.trim() : '';
+        res.json(await hints.presentationFor(req.db, req.body.email, { typedEmail: req.typedEmail, orgSlug }));
     } catch (error) {
         console.error('Identify error:', error.message);
         // The page still works without it: it shows the neutral welcome.
@@ -66,6 +70,28 @@ router.post('/login', [
         }
 
         const { email, password } = req.body;
+        const orgSlug = typeof req.body?.org_slug === 'string' ? req.body.org_slug.trim() : '';
+        let targetOrg = null;
+        if (orgSlug) {
+            if (!/^[a-z0-9-]{1,80}$/i.test(orgSlug) || !(await orgs.ready(req.db).catch(() => false))) {
+                return res.status(404).json({
+                    error: 'Organization not found',
+                    code: 'ORG_NOT_FOUND',
+                    message: 'This organization portal was not found.',
+                });
+            }
+            targetOrg = await req.db.get(
+                'SELECT * FROM organizations WHERE lower(slug) = lower($1) LIMIT 1',
+                [orgSlug]
+            );
+            if (!targetOrg) {
+                return res.status(404).json({
+                    error: 'Organization not found',
+                    code: 'ORG_NOT_FOUND',
+                    message: 'This organization portal was not found.',
+                });
+            }
+        }
 
         // Find user by email. Once migration 030 is applied, by email key too:
         // yate.ronald@gmail.com, yateronald@gmail.com and Yate.Ronald+x@gmail.com
@@ -78,6 +104,24 @@ router.post('/login', [
                 'SELECT * FROM users WHERE email = ?',
                 [email]
             );
+
+        // When signing in through a company's dedicated portal (/o/<slug>),
+        // strictly require membership in that organization (candidate or org_admin).
+        if (targetOrg) {
+            const isOrgMember = !!user
+                && Number(user.organization_id) === Number(targetOrg.id)
+                && (user.role === 'candidate' || user.role === 'org_admin');
+            if (!isOrgMember) {
+                await verifyPassword(password, hints.DUMMY_HASH);
+                const orgLabel = targetOrg.display_name || targetOrg.name;
+                return res.status(403).json({
+                    error: 'Not a member of this organization',
+                    code: 'NOT_ORG_MEMBER',
+                    org_name: orgLabel,
+                    message: `This email address is not part of ${orgLabel}. Please sign in with an email belonging to this organization.`,
+                });
+            }
+        }
 
         // Nothing here may tell a stranger whether the email has an account:
         // an unknown email takes as long, fails the same way and even "locks"

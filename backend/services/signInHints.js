@@ -22,36 +22,103 @@ const { hasColumn } = require('./schemaFeatures');
 const { normalizeBranding } = require('./organizationBranding');
 
 /** The spaces a sign-in page can present. */
-const AUDIENCES = ['platform', 'exam', 'student', 'teacher', 'company_learner', 'company_manager'];
+const AUDIENCES = ['platform', 'exam', 'student', 'teacher', 'company_learner', 'company_manager', 'org_mismatch'];
+const SLUG_RE = /^[a-z0-9-]{1,80}$/i;
+
+function publicBrand(org) {
+    return {
+        name: org.display_name || org.name,
+        slug: org.slug,
+        default_language: org.default_language,
+        logo_url: org.logo_file_id ? `/api/public/org/${encodeURIComponent(org.slug)}/logo?v=${new Date(org.logo_updated_at || 0).getTime()}` : null,
+        cover_url: org.cover_file_id ? `/api/public/org/${encodeURIComponent(org.slug)}/cover?v=${new Date(org.cover_updated_at || 0).getTime()}` : null,
+        branding: normalizeBranding(org.portal_branding),
+    };
+}
 
 /**
  * The space an email signs in to. `platform` for unknown emails and for
  * administrators (see above). A company account whose company is gone reads as
  * `platform` too.
+ *
+ * When `orgSlug` is provided (signing in from `/o/<slug>`), membership in that
+ * specific organization is strictly enforced: any email not belonging to that
+ * organization returns `{ audience: 'org_mismatch', org_member: false, org_name }`.
  */
-async function presentationFor(db, email) {
+async function presentationFor(db, email, options = {}) {
+    const typedEmail = typeof options.typedEmail === 'string' && options.typedEmail.trim() ? options.typedEmail.trim() : email;
+    const orgSlug = typeof options.orgSlug === 'string' ? options.orgSlug.trim() : '';
     const companies = await orgs.ready(db).catch(() => false);
+    const hasEmailKey = await hasColumn(db, 'users', 'email_key').catch(() => false);
+
+    if (orgSlug && SLUG_RE.test(orgSlug) && companies) {
+        const targetOrg = await db.get(
+            `SELECT * FROM organizations WHERE lower(slug) = lower($1) LIMIT 1`,
+            [orgSlug]
+        );
+        if (!targetOrg) return { audience: 'platform' };
+
+        const row = hasEmailKey
+            ? await db.get(
+                `SELECT u.id, u.role, u.organization_id
+                   FROM users u
+                  WHERE u.email = $1 OR u.email_key = lfwn_email_key($2)
+                  ORDER BY (u.email = $1) DESC, u.id LIMIT 1`,
+                [email, typedEmail]
+            )
+            : await db.get(
+                `SELECT u.id, u.role, u.organization_id
+                   FROM users u
+                  WHERE u.email = $1 LIMIT 1`,
+                [email]
+            );
+
+        const isMember = !!row
+            && Number(row.organization_id) === Number(targetOrg.id)
+            && (row.role === 'candidate' || row.role === 'org_admin');
+
+        if (isMember) {
+            return {
+                audience: row.role === 'org_admin' ? 'company_manager' : 'company_learner',
+                company: publicBrand(targetOrg),
+                org_member: true,
+            };
+        }
+        return {
+            audience: 'org_mismatch',
+            org_member: false,
+            org_name: targetOrg.display_name || targetOrg.name,
+        };
+    }
+
     const hasBranding = companies && await hasColumn(db, 'organizations', 'portal_branding').catch(() => false);
     const orgCols = hasBranding
         ? `o.id AS org_id, o.name, o.display_name, o.slug, o.default_language, o.logo_file_id, o.logo_updated_at, o.cover_file_id, o.cover_updated_at, o.portal_branding`
         : `o.id AS org_id, o.name, o.display_name, o.slug, o.default_language, o.logo_file_id, o.logo_updated_at`;
+    const whereClause = hasEmailKey
+        ? `(u.email = $1 OR u.email_key = lfwn_email_key($2)) ORDER BY (u.email = $1) DESC, u.id LIMIT 1`
+        : `u.email = $1 LIMIT 1`;
+    const params = hasEmailKey ? [email, typedEmail] : [email];
     const row = await db.get(
         companies
             ? `SELECT u.role, ${orgCols}
                  FROM users u LEFT JOIN organizations o ON o.id = u.organization_id
-                WHERE u.email = $1 LIMIT 1`
-            : `SELECT u.role FROM users u WHERE u.email = $1 LIMIT 1`,
-        [email]
+                WHERE ${whereClause}`
+            : `SELECT u.role FROM users u WHERE ${whereClause}`,
+        params
     );
     if (!row) return { audience: 'platform' };
     // Only what the company's public page (/o/<slug>) already shows.
-    const company = () => ({
-        name: row.display_name || row.name,
+    const company = () => publicBrand({
+        name: row.name,
+        display_name: row.display_name,
         slug: row.slug,
         default_language: row.default_language,
-        logo_url: row.logo_file_id ? `/api/public/org/${encodeURIComponent(row.slug)}/logo?v=${new Date(row.logo_updated_at || 0).getTime()}` : null,
-        cover_url: row.cover_file_id ? `/api/public/org/${encodeURIComponent(row.slug)}/cover?v=${new Date(row.cover_updated_at || 0).getTime()}` : null,
-        branding: normalizeBranding(row.portal_branding),
+        logo_file_id: row.logo_file_id,
+        logo_updated_at: row.logo_updated_at,
+        cover_file_id: row.cover_file_id,
+        cover_updated_at: row.cover_updated_at,
+        portal_branding: row.portal_branding,
     });
     switch (row.role) {
         case 'org_admin': return row.org_id ? { audience: 'company_manager', company: company() } : { audience: 'platform' };

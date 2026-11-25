@@ -29,6 +29,9 @@
     radial-gradient(rgba(255, 255, 255, 0.16) 1px, transparent 1.2px) 0 0 / 14px 14px,
     linear-gradient(135deg, #0b3b4a 0%, #0e7490 60%, #22d3ee 100%);
 }
+.pf-cover.is-company {
+  background: var(--org-pf-cover, linear-gradient(135deg, #0b3b4a 0%, #0f766e 60%, #14b8a6 100%));
+}
 .pf-avatar-wrap { display: flex; justify-content: center; margin-top: -48px; }
 .pf-avatar { position: relative; width: 96px; height: 96px; padding: 0; overflow: hidden; border: 4px solid #fff; border-radius: 50%; background: var(--tc-accent-soft); box-shadow: 0 12px 26px -14px rgba(15, 23, 42, 0.55); font: inherit; cursor: pointer; }
 .pf-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -45,6 +48,7 @@
 .pf-role.is-admin { background: var(--tc-warn-bg); color: #b45309; }
 .pf-role.is-student { background: var(--tc-good-bg); color: var(--tc-good); }
 .pf-role.is-candidate { background: #ecfeff; color: #0e7490; }
+.pf-role.is-company { background: var(--org-accent-soft, #f0fdfa); color: var(--org-accent, #0f766e); }
 .pf-goal { padding-bottom: 16px; }
 .pf-photo-actions { display: flex; gap: 6px; margin-top: 8px; }
 .pf-danger:not(:disabled):hover { border-color: #fecaca !important; color: var(--tc-bad) !important; }
@@ -73,7 +77,7 @@
 .pf-section-head h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--tc-ink); }
 .pf-section-head p { margin: 2px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--tc-muted); }
 .pf-section-ic { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 36px; height: 36px; border-radius: 10px; background: var(--tc-accent-soft); font-size: 16px; color: var(--tc-accent); }
-.pf-section-ic.is-teal { background: #ecfeff; color: #0e7490; }
+.pf-section-ic.is-teal { background: var(--org-accent-soft, #ecfeff); color: var(--org-accent, #0e7490); }
 .pf-section-ic.is-amber { background: var(--tc-warn-bg); color: var(--tc-warn); }
 
 .pf .ant-form-item-label > label { font-size: 12.5px; font-weight: 600; color: var(--tc-ink); }
@@ -87,8 +91,8 @@
 
 .pf-tz { display: grid; grid-template-columns: minmax(0, 1fr) 230px; align-items: start; gap: 16px; }
 .pf-tz-field { min-width: 0; margin-bottom: 0; }
-.pf-clock { display: flex; flex-direction: column; gap: 1px; margin: 30px 0 24px; padding: 12px 14px; border: 1px solid #cffafe; border-radius: 12px; background: linear-gradient(135deg, #ecfeff, #f0f9ff); }
-.pf-clock-label { font-size: 11.5px; font-weight: 600; color: #0e7490; }
+.pf-clock { display: flex; flex-direction: column; gap: 1px; margin: 30px 0 24px; padding: 12px 14px; border: 1px solid var(--org-accent-line, #cffafe); border-radius: 12px; background: linear-gradient(135deg, var(--org-accent-soft, #ecfeff), #f0f9ff); }
+.pf-clock-label { font-size: 11.5px; font-weight: 600; color: var(--org-accent, #0e7490); }
 .pf-clock strong { font-size: 24px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; color: var(--tc-ink); font-variant-numeric: tabular-nums; }
 .pf-clock em { font-size: 12px; font-style: normal; color: var(--tc-muted); }
 

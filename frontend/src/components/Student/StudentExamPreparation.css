@@ -30,7 +30,12 @@
 }
 
 /* Exam candidates: the exam space's own accent */
-.ep.is-candidate { --ep-accent: #0e7490; --ep-accent-soft: #ecfeff; --ep-accent-line: #a5f3fc; --sk-deep: #155e75; }
+.ep.is-candidate {
+  --ep-accent: var(--org-accent, #0e7490);
+  --ep-accent-soft: var(--org-accent-soft, #ecfeff);
+  --ep-accent-line: var(--org-accent-line, #a5f3fc);
+  --sk-deep: var(--org-accent-deep, #155e75);
+}
 
 .ep-skill-ce, .ep-in-ce { --sk: #1d4ed8; --sk-soft: #eff6ff; --sk-line: #bfdbfe; --sk-deep: #1e3a8a; --sk-rgb: 29, 78, 216; }
 .ep-skill-co, .ep-in-co { --sk: #6d28d9; --sk-soft: #f5f3ff; --sk-line: #ddd6fe; --sk-deep: #4c1d95; --sk-rgb: 109, 40, 217; }
@@ -50,18 +55,18 @@
   border: 1px solid var(--ep-accent-line);
   border-radius: 18px;
   background:
-    radial-gradient(60% 120% at 100% 0%, rgba(4, 120, 87, 0.10), transparent 60%),
-    radial-gradient(80% 140% at 0% 100%, rgba(29, 78, 216, 0.06), transparent 60%),
-    linear-gradient(135deg, #f0fdf8 0%, #ffffff 60%);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 18px 40px -30px rgba(4, 120, 87, 0.45);
+    radial-gradient(60% 120% at 100% 0%, var(--org-ep-tint-a, rgba(4, 120, 87, 0.10)), transparent 60%),
+    radial-gradient(80% 140% at 0% 100%, var(--org-ep-tint-b, rgba(29, 78, 216, 0.06)), transparent 60%),
+    linear-gradient(135deg, var(--org-ep-bg-start, #f0fdf8) 0%, #ffffff 60%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 18px 40px -30px var(--org-ep-tint-a, rgba(4, 120, 87, 0.45));
 }
 .ep-hero::before {
   content: '';
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(4, 120, 87, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(4, 120, 87, 0.06) 1px, transparent 1px);
+    linear-gradient(var(--org-ep-grid, rgba(4, 120, 87, 0.06)) 1px, transparent 1px),
+    linear-gradient(90deg, var(--org-ep-grid, rgba(4, 120, 87, 0.06)) 1px, transparent 1px);
   background-size: 28px 28px;
   mask-image: radial-gradient(70% 90% at 90% 20%, #000, transparent 75%);
   pointer-events: none;

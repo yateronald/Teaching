@@ -130,7 +130,7 @@
 
 .pbe-media-thumb b {
   font-size: 20px;
-  color: #16325C;
+  color: var(--x-accent, #16325C);
 }
 
 .pbe-media-info {
@@ -180,7 +180,7 @@
 }
 
 .pbe-preset:hover:not(:disabled) { border-color: #94A3B8; background: #F8FAFC; }
-.pbe-preset.is-active { border-color: #16325C; background: #F1F5F9; color: #0F172A; }
+.pbe-preset.is-active { border-color: var(--x-accent, #16325C); background: var(--x-accent-soft, #F1F5F9); color: #0F172A; }
 
 .pbe-preset-dots {
   display: inline-flex;
@@ -197,7 +197,7 @@
 }
 
 .pbe-preset-dots i + i { margin-left: -4px; }
-.pbe-preset-check { margin-left: auto; font-size: 11px; color: #16325C; }
+.pbe-preset-check { margin-left: auto; font-size: 11px; color: var(--x-accent, #16325C); }
 
 .pbe-colors-row {
   display: grid;
@@ -259,9 +259,9 @@
 
 .pbe-layout-btn:hover:not(:disabled) { border-color: #94A3B8; }
 .pbe-layout-btn.is-active {
-  border-color: #16325C;
+  border-color: var(--x-accent, #16325C);
   color: #0F172A;
-  box-shadow: 0 0 0 3px rgba(22, 50, 92, 0.08);
+  box-shadow: 0 0 0 3px var(--x-accent-soft, rgba(22, 50, 92, 0.08));
 }
 
 .pbe-thumb {

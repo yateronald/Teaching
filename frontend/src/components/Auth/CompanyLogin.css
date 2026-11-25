@@ -760,6 +760,28 @@
   transform: translateY(0);
 }
 
+.cp-inline-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid #FECACA;
+  border-radius: 10px;
+  background: #FEF2F2;
+  color: #991B1B;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.cp-inline-error .anticon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  font-size: 15px;
+  color: #DC2626;
+}
+
 /* ── Studio Preview Form (WYSIWYG visual match) ── */
 .cp-preview-form {
   margin-top: 22px;

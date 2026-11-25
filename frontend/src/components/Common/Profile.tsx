@@ -10,6 +10,7 @@ import TimezoneSelect from './TimezoneSelect';
 import ExamGoalSection from '../Candidate/ExamGoalSection';
 import SignedInDevices from './SignedInDevices';
 import { resolveTimezone, timezoneLabel } from '../../utils/timezone';
+import { normalizePortalBranding, portalAntdTheme, shellAccentVars } from '../../utils/portalTheme';
 import '../Teacher/Teacher.css';
 import './Profile.css';
 
@@ -24,14 +25,14 @@ interface UserProfile {
     email: string;
     first_name: string;
     last_name: string;
-    role: 'admin' | 'teacher' | 'student' | 'candidate';
+    role: 'admin' | 'teacher' | 'student' | 'candidate' | 'org_admin';
     created_at: string;
     timezone?: string;
     profile_photo_kdrive_file_id?: string | null;
 }
 type Editable = Pick<UserProfile, 'first_name' | 'last_name' | 'username' | 'email' | 'timezone'>;
 
-const ROLE: Record<UserProfile['role'], string> = { admin: 'Administrator', teacher: 'Teacher', student: 'Student', candidate: 'Exam candidate' };
+const ROLE: Record<UserProfile['role'], string> = { admin: 'Administrator', teacher: 'Teacher', student: 'Student', candidate: 'Exam candidate', org_admin: 'Company manager' };
 const PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
 
 const fmtJoined = (v?: string | null) => {
@@ -85,7 +86,7 @@ const passwordStrength = (pw: string) => {
 };
 
 const Profile: React.FC = () => {
-    const { apiCall, updateProfile, changePassword, isAdmin, refreshUser } = useAuth();
+    const { apiCall, updateProfile, changePassword, isAdmin, refreshUser, user: authUser } = useAuth();
     const [msg, msgHolder] = message.useMessage();
     const [form] = Form.useForm<Editable>();
     const [pwForm] = Form.useForm<{ currentPassword: string; newPassword: string; confirmPassword: string }>();
@@ -249,10 +250,16 @@ const Profile: React.FC = () => {
     const completion = Math.round((checks.filter(c => c.done).length / checks.length) * 100);
     const strength = passwordStrength(newPassword);
 
+    const companyBranding = authUser?.organization ? normalizePortalBranding(authUser.organization.branding) : null;
+    const profileTheme = companyBranding
+        ? portalAntdTheme(companyBranding, { fontSize: 13, borderRadius: 8 })
+        : { token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } };
+    const profileVars = companyBranding ? (shellAccentVars(companyBranding) as React.CSSProperties) : undefined;
+
     return (
-        <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } }}>
+        <ConfigProvider theme={profileTheme}>
             {msgHolder}
-            <div className={`tc pf${dirty ? ' has-savebar' : ''}`}>
+            <div className={`tc pf${dirty ? ' has-savebar' : ''}`} style={profileVars}>
                 <header className="tc-header">
                     <div>
                         <div className="tc-overline">Account</div>
@@ -264,7 +271,7 @@ const Profile: React.FC = () => {
                 <div className="pf-grid">
                     {/* ── Identity ── */}
                     <aside className="tc-card pf-id">
-                        <div className={`pf-cover is-${profile.role}`} aria-hidden />
+                        <div className={`pf-cover ${authUser?.organization ? 'is-company' : `is-${profile.role}`}`} aria-hidden />
                         <input ref={fileRef} type="file" accept={PHOTO_TYPES.join(',')} hidden onChange={uploadPhoto} />
                         <div className="pf-avatar-wrap">
                             <button type="button" className="pf-avatar" onClick={pickPhoto} disabled={photoBusy} aria-label={photoUrl ? 'Change profile photo' : 'Add a profile photo'}>
@@ -274,7 +281,7 @@ const Profile: React.FC = () => {
                         </div>
                         <div className="pf-id-body">
                             <h2>{name}</h2>
-                            <span className={`pf-role is-${profile.role}`}><i aria-hidden />{ROLE[profile.role]}</span>
+                            <span className={`pf-role ${authUser?.organization ? 'is-company' : `is-${profile.role}`}`}><i aria-hidden />{ROLE[profile.role] || profile.role}</span>
                             <div className="pf-photo-actions">
                                 <Button size="small" icon={<CameraOutlined />} onClick={pickPhoto} disabled={photoBusy}>{photoUrl ? 'Change photo' : 'Add photo'}</Button>
                                 {photoUrl && <Tooltip title="Remove photo"><Button size="small" icon={<DeleteOutlined />} className="pf-danger" onClick={removePhoto} disabled={photoBusy} aria-label="Remove photo" /></Tooltip>}

@@ -22,9 +22,9 @@
   font-size: 13px;
 }
 .og.is-company, .og-modal.is-company, .og-drawer.is-company {
-  --x-accent: #0f766e;
-  --x-accent-soft: #f0fdfa;
-  --x-accent-line: #99f6e4;
+  --x-accent: var(--org-accent, #0f766e);
+  --x-accent-soft: var(--org-accent-soft, #f0fdfa);
+  --x-accent-line: var(--org-accent-line, #99f6e4);
 }
 .og { container: og / inline-size; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .og .tone-ok, .og-modal .tone-ok, .og-drawer .tone-ok { --t: #047857; --t-bg: #ecfdf5; --t-line: #a7f3d0; }

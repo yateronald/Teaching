@@ -5,6 +5,7 @@ import {
     AudioOutlined, FormOutlined, HistoryOutlined, ReadOutlined, ReloadOutlined, RightOutlined, SoundOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { normalizePortalBranding, portalAntdTheme } from '../../utils/portalTheme';
 import { useTr } from '../../utils/useTr';
 import AttemptReview from './AttemptReview';
 import {
@@ -24,8 +25,11 @@ type Filter = 'all' | SkillKey;
 const skillStyle = (k: SkillKey) => ({ '--sk': SKILLS[k].color, '--sk-soft': SKILLS[k].soft, '--sk-line': SKILLS[k].line } as React.CSSProperties);
 
 const CandidateResults: React.FC = () => {
-    const { apiCall } = useAuth();
+    const { apiCall, user } = useAuth();
     const { tr, lang, locale } = useTr();
+    const theme = user?.organization
+        ? portalAntdTheme(normalizePortalBranding(user.organization.branding), { borderRadius: 8 })
+        : { token: { colorPrimary: '#0e7490', borderRadius: 8 } };
     const navigate = useNavigate();
     const [params, setParams] = useSearchParams();
     const [overview, setOverview] = useState<Overview | null>(null);
@@ -108,11 +112,11 @@ const CandidateResults: React.FC = () => {
     const skillsBy = overview ? Object.fromEntries(overview.skills.map(s => [s.skill, s])) : {};
 
     return (
-        <ConfigProvider theme={{ token: { colorPrimary: '#0e7490', borderRadius: 8 } }}>
+        <ConfigProvider theme={theme}>
             <div className="cx">
                 <header className="cx-head">
                     <div className="cx-head-text">
-                        <div className="cx-overline">{tr('Exam space', 'Espace examen')}</div>
+                        <div className="cx-overline">{user?.organization ? user.organization.name : tr('Exam space', 'Espace examen')}</div>
                         <h1 className="cx-title">{tr('My results', 'Mes résultats')}</h1>
                         <p className="cx-subtitle">{tr('Every practice you completed, with its score, level and full correction.', 'Chaque entraînement terminé, avec son score, son niveau et sa correction complète.')}</p>
                     </div>
