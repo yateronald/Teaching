@@ -48,8 +48,9 @@ const DeviceSettings: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       if (kind === 'mic') await localParticipant.setMicrophoneEnabled(on);
       else await localParticipant.setCameraEnabled(on);
       remember(kind === 'mic' ? { audioEnabled: on } : { videoEnabled: on });
-    } catch (e: any) {
-      setError(e?.name === 'NotAllowedError'
+    } catch (e: unknown) {
+      const errName = (e as { name?: string })?.name;
+      setError(errName === 'NotAllowedError'
         ? `Your browser is blocking the ${kind === 'mic' ? 'microphone' : 'camera'}. Allow it from the address bar.`
         : `The ${kind === 'mic' ? 'microphone' : 'camera'} could not be started.`);
     }
@@ -59,7 +60,9 @@ const DeviceSettings: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     if (testing) return;
     setTesting(true);
     try {
-      const Ctx: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      const win = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+      const Ctx = win.AudioContext || win.webkitAudioContext;
+      if (!Ctx) { setTesting(false); return; }
       const ctx = new Ctx();
       const dest = ctx.createMediaStreamDestination();
       [523.25, 659.25, 783.99].forEach((f, i) => {
@@ -74,10 +77,10 @@ const DeviceSettings: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         osc.start(t0);
         osc.stop(t0 + 0.75);
       });
-      const el = new Audio();
+      const el = new Audio() as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
       el.srcObject = dest.stream;
-      if (out.activeDeviceId && typeof (el as any).setSinkId === 'function') {
-        await (el as any).setSinkId(out.activeDeviceId).catch(() => { });
+      if (out.activeDeviceId && typeof el.setSinkId === 'function') {
+        await el.setSinkId(out.activeDeviceId).catch(() => { });
       }
       await el.play();
       window.setTimeout(() => { el.pause(); ctx.close().catch(() => { }); setTesting(false); }, 1400);
@@ -129,7 +132,7 @@ const DeviceSettings: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <div className="mr-level" aria-hidden>
                 <i style={{ transform: `scaleX(${isMicrophoneEnabled ? Math.min(1, volume * 2.5) : 0})` }} />
               </div>
-              <span className="mr-field-hint">{isMicrophoneEnabled ? 'Speak — the bar moves when we hear you.' : 'Your microphone is muted.'}</span>
+              <span className="mr-field-hint">{isMicrophoneEnabled ? 'Speak: the bar moves when we hear you.' : 'Your microphone is muted.'}</span>
             </section>
 
             <section className="mr-field">

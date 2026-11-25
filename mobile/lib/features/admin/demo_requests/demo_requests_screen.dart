@@ -159,7 +159,7 @@ class _DemoRequestsScreenState extends ConsumerState<DemoRequestsScreen> {
             StatTile(label: fr ? 'Démos planifiées' : 'Demos scheduled', value: '${J.i(_stats['demo_scheduled'])}', icon: Icons.event_available_outlined, color: const Color(0xFF7C3AED)),
             StatTile(
               label: fr ? 'Taux de conversion' : 'Completion rate',
-              value: J.i(_stats['total']) == 0 ? '—' : '${(J.i(_stats['completed']) * 100 / J.i(_stats['total'])).round()}%',
+              value: J.i(_stats['total']) == 0 ? '-' : '${(J.i(_stats['completed']) * 100 / J.i(_stats['total'])).round()}%',
               sub: fr ? '${J.i(_stats['completed'])} démos faites' : '${J.i(_stats['completed'])} demos held',
               icon: Icons.trending_up,
               color: AppColors.good,

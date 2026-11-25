@@ -33,7 +33,7 @@ const STATUS_LABEL: Record<Recording['status'], string> = {
 };
 
 function fmtDuration(seconds?: number | null): string {
-  if (!seconds || seconds < 1) return '—';
+  if (!seconds || seconds < 1) return '-';
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);

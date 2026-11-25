@@ -1,96 +1,80 @@
-const { baseHtml, detailCard, ctaButton, escapeHtml, formatRecipientTime } = require('./base');
+const { baseHtml, detailCard, ctaButton, infoStrip, escapeHtml, formatRecipientTime, BRAND } = require('./base');
 
 /**
- * Email sent to a student when their demo class has been scheduled.
- *
- * @param {{
- *   studentName?: string,
- *   teacherName?: string,
- *   teacherEmail?: string,
- *   demoDate?: string|Date,
- *   demoTime?: string|Date,
- *   meetingLink?: string,
- *   notes?: string,
- *   recipientTimezone?: string,
- * }} args
+ * Email sent to a student when their demo class has been scheduled via external link.
+ * Intentionally avoids exposing personal coordinator names.
  */
 function buildDemoScheduleStudentTemplate({
     studentName,
-    teacherName,
-    teacherEmail,
     demoDate,
     demoTime,
     meetingLink,
     notes,
     recipientTimezone,
 }) {
-    const safeStudent = studentName || 'there';
+    const firstName = String(studentName || '').trim().split(/\s+/)[0] || 'there';
     const tz = recipientTimezone || 'UTC';
 
-    const subject = 'Your demo class is scheduled';
-    const preheader = teacherName
-        ? `${teacherName} will run your demo class.`
-        : 'Your demo class details are inside.';
+    const subject = 'Your French demo session is confirmed';
+    const preheader = 'Your French demo session details and join link are inside.';
 
-    // demoDate is expected to be a full ISO timestamp (with time). demoTime is
-    // accepted as a fallback for older callers.
     const moment = demoDate || demoTime || null;
     const whenStr = formatRecipientTime(moment, tz);
 
     const detailRows = [
-        { label: 'Teacher', value: teacherName ? escapeHtml(teacherName) : null },
-        { label: 'Teacher email', value: teacherEmail ? escapeHtml(teacherEmail) : null },
         { label: `Date & time (${tz})`, value: whenStr ? escapeHtml(whenStr) : null },
+        { label: 'Instructor', value: 'A native French instructor will host your session' },
     ];
 
     const cta = meetingLink
-        ? ctaButton({ label: 'Join demo', href: meetingLink })
+        ? ctaButton({ label: 'Join demo session', href: escapeHtml(meetingLink) })
         : '';
 
-    const notesCard = notes
-        ? detailCard({ title: "Teacher's note", rows: [{ label: 'Note', value: escapeHtml(notes) }] })
+    const notesBlock = notes
+        ? infoStrip({
+            tone: 'muted',
+            text: `<strong>Note from our team:</strong> ${escapeHtml(notes)}`,
+        })
         : '';
 
     const bodyHtml = `
-      <p style="margin:0 0 14px; font-size:15px; color:#0f172a;">Hi <strong>${escapeHtml(safeStudent)}</strong>,</p>
-      <p style="margin:0 0 22px; font-size:14.5px; color:#475569; line-height:1.65;">
-        Your French demo class is confirmed. We'll use this session to assess your level, share how we teach, and answer any questions you have.
+      <p style="margin: 0 0 14px; font-size: 15px; color: ${BRAND.text}; line-height: 1.55;">
+        Hello ${escapeHtml(firstName)},
+      </p>
+      <p style="margin: 0 0 22px; font-size: 14.5px; color: ${BRAND.textBody}; line-height: 1.65;">
+        Your French demo session is confirmed. An instructor will meet you at the time below to assess your current level, walk through how our classes work, and answer your questions.
       </p>
 
-      ${detailCard({ title: 'Demo details', rows: detailRows })}
+      ${detailCard({ title: 'Session details', rows: detailRows })}
 
       ${cta}
 
-      ${notesCard}
+      ${notesBlock}
 
-      <p style="margin: 18px 0 0; font-size: 13px; color: #94a3b8; line-height: 1.6;">
-        À très bientôt 🇫🇷
+      <p style="margin: 0; font-size: 13px; color: ${BRAND.textMuted}; line-height: 1.6;">
+        We look forward to speaking with you soon.
       </p>
     `;
 
     const html = baseHtml({
         subject,
         preheader,
-        eyebrow: 'DEMO CLASS',
-        title: 'Your demo class is scheduled',
+        eyebrow: 'DEMO SESSION CONFIRMED',
+        title: 'Your demo session is scheduled',
         bodyHtml,
     });
 
     const textLines = [
-        `Hi ${safeStudent},`,
+        `Hello ${firstName},`,
         '',
-        "Your French demo class is confirmed. We'll use this session to assess your level, share how we teach, and answer any questions you have.",
+        'Your French demo session is confirmed. An instructor will meet you at the time below.',
         '',
-        'DEMO DETAILS',
-        ...detailRows
-            .filter(r => r.value)
-            .map(r => `${r.label}: ${String(r.value).replace(/<[^>]+>/g, '')}`),
-    ];
-    if (meetingLink) textLines.push('', `Join demo: ${meetingLink}`);
-    if (notes) textLines.push('', `Teacher's note: ${notes}`);
-    const text = textLines.filter(Boolean).join('\n');
+        whenStr ? `Date & time (${tz}): ${whenStr}` : null,
+        meetingLink ? `Join link: ${meetingLink}` : null,
+        notes ? `Note: ${notes}` : null,
+    ].filter(Boolean);
 
-    return { subject, html, text };
+    return { subject, html, text: textLines.join('\n') };
 }
 
 module.exports = { buildDemoScheduleStudentTemplate };

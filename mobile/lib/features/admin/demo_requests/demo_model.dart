@@ -112,10 +112,29 @@ class Demo {
     }
   }
 
-  static String formatSlot(Map<String, dynamic> slot) {
+  static String formatSlot(Map<String, dynamic> slot, {bool fr = false}) {
     final d = J.s(slot['date']);
     final s = J.s(slot['start']);
     final e = J.s(slot['end']);
-    return '$d · $s – $e';
+    final parsed = DateTime.tryParse(d);
+    String dateLabel = d;
+    if (parsed != null) {
+      const wdEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const wdFr = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+      const moEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const moFr = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+      final wd = (fr ? wdFr : wdEn)[parsed.weekday - 1];
+      final mo = (fr ? moFr : moEn)[parsed.month - 1];
+      dateLabel = fr ? '$wd ${parsed.day} $mo' : '$wd, $mo ${parsed.day}';
+    }
+    return '$dateLabel · $s - $e';
+  }
+
+  static List<Map<String, dynamic>> proposedSlots(Map<String, dynamic> av) {
+    final direct = av['proposed_slots'];
+    final nested = av['proposed_days'] is Map ? av['proposed_days']['slots'] : null;
+    final raw = direct is List ? direct : (nested is List ? nested : null);
+    if (raw == null) return const [];
+    return raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
   }
 }

@@ -6,16 +6,16 @@
 .ml,
 .ml-modal,
 .ml-player {
-  --ml-ink: #0f172a;
-  --ml-text: #334155;
-  --ml-muted: #64748b;
-  --ml-subtle: #94a3b8;
-  --ml-line: #e2e8f0;
-  --ml-line-soft: #f1f5f9;
-  --ml-soft: #f8fafc;
-  --ml-accent: #047857;
-  --ml-accent-soft: #ecfdf5;
-  --ml-accent-line: #a7f3d0;
+  --ml-ink: #0b1733;
+  --ml-text: #384257;
+  --ml-muted: #5d687d;
+  --ml-subtle: #636d81;
+  --ml-line: #e6e0d4;
+  --ml-line-soft: #efebe3;
+  --ml-soft: #fbf9f5;
+  --ml-accent: #183961;
+  --ml-accent-soft: #edf1f5;
+  --ml-accent-line: #ccd6e1;
 
   color: var(--ml-text);
   font-size: 13px;
@@ -66,12 +66,12 @@
 }
 .ml-hero.is-live {
   border: 1px solid transparent;
-  border-left: 4px solid #34d399;
+  border-left: 4px solid #c81e32;
   color: #fff;
   background:
-    radial-gradient(80% 140% at 100% 0%, rgba(74, 222, 128, 0.35), transparent 60%),
-    linear-gradient(135deg, #064e3b 0%, #047857 58%, #0f766e 100%);
-  box-shadow: 0 10px 25px -10px rgba(4, 120, 87, 0.6);
+    radial-gradient(80% 140% at 100% 0%, rgba(168, 51, 66, 0.28), transparent 60%),
+    linear-gradient(135deg, #0b1733 0%, #183961 60%, #1e4574 100%);
+  box-shadow: 0 10px 25px -10px rgba(11, 23, 51, 0.55);
 }
 .ml-hero.is-live::before {
   content: '';
@@ -360,8 +360,8 @@
 .ml-more { display: flex; justify-content: center; padding: 10px 0 6px; }
 .ml-focus { animation: ml-focus 2.5s ease-out; scroll-margin-top: 100px; }
 @keyframes ml-focus {
-  0% { box-shadow: 0 0 0 0 rgba(4, 120, 87, 0.45); }
-  30% { box-shadow: 0 0 0 6px rgba(4, 120, 87, 0.18); }
+  0% { box-shadow: 0 0 0 0 rgba(24, 57, 97, 0.45); }
+  30% { box-shadow: 0 0 0 6px rgba(24, 57, 97, 0.18); }
   100% { box-shadow: 0 0 0 0 transparent; }
 }
 
@@ -404,8 +404,8 @@
   border: 0;
   border-radius: 10px;
   background:
-    radial-gradient(90% 120% at 20% 0%, rgba(52, 211, 153, 0.35), transparent 60%),
-    linear-gradient(135deg, #0f172a, #1e293b);
+    radial-gradient(90% 120% at 20% 0%, rgba(59, 130, 246, 0.28), transparent 60%),
+    linear-gradient(135deg, #0b1733, #183961);
   color: #fff;
   cursor: pointer;
 }

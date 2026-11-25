@@ -59,7 +59,7 @@ const MeetingLobbyWatcher: React.FC = () => {
         if (resp.ok) message.success(how === 'admit' ? `${e.request.userName} is joining “${e.title}”` : `Request from ${e.request.userName} declined`);
         else message.info(`${e.request.userName} is no longer waiting`);
       } catch {
-        message.error('No connection — try again from the meeting.');
+        message.error('No connection. Try again from the meeting.');
       }
     };
 

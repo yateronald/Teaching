@@ -30,7 +30,7 @@ import type { LayoutMode } from './MeetingStage';
 import PreJoin, { loadMediaChoices, saveMediaChoices } from './PreJoin';
 import type { MediaChoices, PreJoinStatus } from './PreJoin';
 import Whiteboard from './Whiteboard';
-import { Ic, cleanDeviceLabel, colorFor, initials, passcodeFromLink } from './meetingUi';
+import { Ic, cleanDeviceLabel, cleanMeetingTitle, colorFor, initials, passcodeFromLink } from './meetingUi';
 import { playChatSound, playHandRaiseSound, playNotificationSound, playPollSound } from './meetingSounds';
 import './MeetingShell.css';
 import './MeetingRoom.css';
@@ -492,7 +492,7 @@ const MeetingPage: React.FC = () => {
 
   const back = () => navigate('/app/meetings');
   const shell = (node: React.ReactNode) => (
-    <ConfigProvider theme={{ token: { colorPrimary: '#047857', fontSize: 13, borderRadius: 8 } }}>{node}</ConfigProvider>
+    <ConfigProvider theme={{ token: { colorPrimary: '#183961', fontSize: 13, borderRadius: 8 } }}>{node}</ConfigProvider>
   );
   const title = meeting?.title;
 
@@ -590,7 +590,7 @@ const MeetingPage: React.FC = () => {
         text={declined.final
           ? 'The host declined your request several times. You cannot ask to join this class again.'
           : 'The host did not let you in this time.'}
-        hint={declined.final ? undefined : `You can ask again in ${Math.max(1, Math.ceil((declined.retryAfter || 120) / 60))} min — contact your teacher if you think this is a mistake.`}
+        hint={declined.final ? undefined : `You can ask again in ${Math.max(1, Math.ceil((declined.retryAfter || 120) / 60))} min. Contact your teacher if you think this is a mistake.`}
         meetingTitle={title}
       >
         <Button icon={<ArrowLeftOutlined />} onClick={back}>Back to meetings</Button>
@@ -605,7 +605,7 @@ const MeetingPage: React.FC = () => {
         badge="Connection Dropped"
         icon={<DisconnectOutlined />}
         title="We couldn't bring you back automatically"
-        text="We kept trying to reconnect you for several minutes. Check your internet connection, then rejoin — you'll go straight back into the class."
+        text="We kept trying to reconnect you for several minutes. Check your internet connection, then rejoin to go straight back into the class."
         meetingTitle={title}
       >
         <Button icon={<ArrowLeftOutlined />} onClick={back}>Back to meetings</Button>
@@ -1108,7 +1108,7 @@ export const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, guestMod
     try {
       if (isRecording) {
         const resp = await apiCall(`/meetings/${meeting.id}/recording/stop`, { method: 'POST' });
-        if (resp.ok) message.success('Recording stopped — the video is being prepared');
+        if (resp.ok) message.success('Recording stopped. The video is being prepared.');
         else message.error((await resp.json().catch(() => ({}))).error || 'Could not stop the recording');
       } else {
         const resp = await apiCall(`/meetings/${meeting.id}/recording/start`, { method: 'POST' });
@@ -1488,12 +1488,14 @@ export const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, guestMod
 
   /* ═══════════ RENDER ═══════════ */
   return (
-    <ConfigProvider theme={{ token: { colorPrimary: '#059669', fontSize: 13, borderRadius: 8 } }}>
+    <ConfigProvider theme={{ token: { colorPrimary: '#183961', fontSize: 13, borderRadius: 8 } }}>
       <div ref={rootRef} className={`mr${mobile ? ' is-mobile' : ''}${panel ? ' has-panel' : ''}`}>
         {/* ── Top bar ── */}
         <header className="mr-top">
           <div className="mr-top-left">
-            <div className="mr-top-title">{meeting.title}</div>
+            <img src="/assets/Logo.png" alt="Learn French with Natives" className="mr-brand-mark" width={26} height={26} />
+            <span className="mr-top-sep" aria-hidden />
+            <div className="mr-top-title">{cleanMeetingTitle(meeting.title)}</div>
             <div className="mr-top-chips">
               {isRecording && <span className="mr-rec"><i /> REC <Elapsed since={recStartedAt!} /></span>}
               {isLocked && <span className="mr-chip">{Ic.lock} Locked</span>}
@@ -1508,7 +1510,7 @@ export const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, guestMod
             )}
             {tip(`Your connection: ${quality}`, <span className="mr-quality"><QualityBars q={quality} /></span>)}
             <span className="mr-timer"><Elapsed since={joinedAt} /></span>
-            {!mobile && tip(isHost ? 'Invite people — meeting ID & passcode' : 'Meeting details', (
+            {!mobile && tip(isHost ? 'Invite people (meeting ID & passcode)' : 'Meeting details', (
               <button type="button" className="mr-code-btn" onClick={() => setInfoOpen(true)} aria-label={isHost ? 'Invite people' : 'Meeting details'}>
                 {isHost ? Ic.link : Ic.info}<span>{meeting.code}</span>
               </button>
@@ -1521,11 +1523,11 @@ export const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, guestMod
           </div>
         </header>
 
-        {reconnecting && <div className="mr-banner is-warn"><LoadingOutlined /> Connection lost — reconnecting…</div>}
+        {reconnecting && <div className="mr-banner is-warn"><LoadingOutlined /> Connection lost, reconnecting...</div>}
         {announceOpen && (
           <div className="mr-banner is-input">
             <span className="mr-banner-ic">{Ic.megaphone}</span>
-            <Input className="mr-input" autoFocus value={announceInput} maxLength={200} placeholder="Type an announcement for everyone…"
+            <Input className="mr-input" autoFocus value={announceInput} maxLength={200} placeholder="Type an announcement for everyone..."
               onChange={e => setAnnounceInput(e.target.value)} onPressEnter={sendAnnouncement} />
             <Button size="small" type="primary" disabled={!announceInput.trim()} onClick={sendAnnouncement}>Send</Button>
             <button type="button" className="mr-icon-btn is-sm" onClick={() => setAnnounceOpen(false)} aria-label="Cancel announcement">{Ic.close}</button>
@@ -1549,7 +1551,7 @@ export const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, guestMod
               <div className="mr-wb">
                 <div className="mr-wb-head">
                   <span className="mr-wb-title">{Ic.pen} Whiteboard</span>
-                  <span className="mr-wb-note">{isHost ? 'Only you see this board — present your screen to show it to the class.' : 'Personal board — only you see it.'}</span>
+                  <span className="mr-wb-note">{isHost ? 'Only you see this board. Present your screen to share it.' : 'Personal board (only you see it).'}</span>
                   <button type="button" className="mr-icon-btn is-light" onClick={() => setWhiteboardOpen(false)} aria-label="Close whiteboard">{Ic.close}</button>
                 </div>
                 <div className="mr-wb-body"><Whiteboard /></div>
@@ -1594,7 +1596,7 @@ export const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, guestMod
               </div>
             ))}
 
-            {connecting && <div className="mr-connecting"><LoadingOutlined /> Connecting to the class…</div>}
+            {connecting && <div className="mr-connecting"><LoadingOutlined /> Connecting to the session...</div>}
           </main>
 
           {panel && (
@@ -1629,144 +1631,148 @@ export const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, guestMod
               <>
                 <span className="mr-clock"><Clock /></span>
                 <span className="mr-bar-sep" />
-                <span className="mr-bar-title">{meeting.title}</span>
+                <span className="mr-bar-title">{cleanMeetingTitle(meeting.title)}</span>
               </>
             )}
           </div>
 
           <div className="mr-bar-center">
-            <div className="mr-split mr-pop-anchor">
-              {tip(`${lp.isMicrophoneEnabled ? 'Turn off' : 'Turn on'} microphone (Ctrl + D)`, (
-                <button type="button" className={`mr-ctl${lp.isMicrophoneEnabled ? '' : ' is-off'}`} onClick={toggleMic}
-                  aria-label={lp.isMicrophoneEnabled ? 'Turn off microphone' : 'Turn on microphone'} aria-pressed={!lp.isMicrophoneEnabled}>
-                  {lp.isMicrophoneEnabled ? Ic.mic : Ic.micOff}
-                </button>
-              ))}
-              {!mobile && (
-                <button type="button" className={`mr-ctl-caret${menu === 'mic' ? ' is-open' : ''}`} onClick={() => setMenu(menu === 'mic' ? null : 'mic')} aria-label="Audio devices">
-                  {Ic.chevronUp}
-                </button>
-              )}
-              {menu === 'mic' && !mobile && (
-                <div className="mr-pop mr-pop-devices" role="menu">
-                  <DeviceMenu kind="audioinput" title="Microphone" storeKey="audioDeviceId" />
-                  {canPickSpeaker && <DeviceMenu kind="audiooutput" title="Speaker" storeKey="speakerDeviceId" />}
-                  <button type="button" className="mr-menu-link" onClick={() => { setMenu(null); setSettingsOpen(true); }}>{Ic.settings} Audio & video settings</button>
-                </div>
-              )}
-            </div>
-
-            <div className="mr-split mr-pop-anchor">
-              {tip(`${lp.isCameraEnabled ? 'Turn off' : 'Turn on'} camera (Ctrl + E)`, (
-                <button type="button" className={`mr-ctl${lp.isCameraEnabled ? '' : ' is-off'}`} onClick={toggleCam}
-                  aria-label={lp.isCameraEnabled ? 'Turn off camera' : 'Turn on camera'} aria-pressed={!lp.isCameraEnabled}>
-                  {lp.isCameraEnabled ? Ic.cam : Ic.camOff}
-                </button>
-              ))}
-              {!mobile && (
-                <button type="button" className={`mr-ctl-caret${menu === 'cam' ? ' is-open' : ''}`} onClick={() => setMenu(menu === 'cam' ? null : 'cam')} aria-label="Cameras">
-                  {Ic.chevronUp}
-                </button>
-              )}
-              {menu === 'cam' && !mobile && (
-                <div className="mr-pop mr-pop-devices" role="menu">
-                  <DeviceMenu kind="videoinput" title="Camera" storeKey="videoDeviceId" />
-                  <button type="button" className="mr-menu-link" onClick={() => { setMenu(null); setSettingsOpen(true); }}>{Ic.settings} Audio & video settings</button>
-                </div>
-              )}
-            </div>
-
-            {!mobile && tip(iAmSharing ? 'Stop presenting' : 'Present your screen', (
-              <button type="button" className={`mr-ctl${iAmSharing ? ' is-active' : ''}`} onClick={toggleShare} aria-label={iAmSharing ? 'Stop presenting' : 'Present your screen'}>
-                {iAmSharing ? Ic.shareStop : Ic.share}
-              </button>
-            ))}
-
-            {!mobile && (
-              <div className="mr-pop-anchor">
-                {tip('Send a reaction', (
-                  <button type="button" className={`mr-ctl${menu === 'reactions' ? ' is-active' : ''}`} onClick={() => setMenu(menu === 'reactions' ? null : 'reactions')} aria-label="Send a reaction">
-                    {Ic.smile}
+            <div className="mr-dock">
+              <div className="mr-split mr-pop-anchor">
+                {tip(`${lp.isMicrophoneEnabled ? 'Turn off' : 'Turn on'} microphone (Ctrl + D)`, (
+                  <button type="button" className={`mr-ctl${lp.isMicrophoneEnabled ? '' : ' is-off'}`} onClick={toggleMic}
+                    aria-label={lp.isMicrophoneEnabled ? 'Turn off microphone' : 'Turn on microphone'} aria-pressed={!lp.isMicrophoneEnabled}>
+                    {lp.isMicrophoneEnabled ? Ic.mic : Ic.micOff}
                   </button>
                 ))}
-                {menu === 'reactions' && (
-                  <div className="mr-pop mr-pop-emoji" role="menu">
-                    {EMOJIS.map(e => <button key={e} type="button" onClick={() => sendEmoji(e)} aria-label={`React ${e}`}>{e}</button>)}
+                {!mobile && (
+                  <button type="button" className={`mr-ctl-caret${menu === 'mic' ? ' is-open' : ''}`} onClick={() => setMenu(menu === 'mic' ? null : 'mic')} aria-label="Audio devices">
+                    {Ic.chevronUp}
+                  </button>
+                )}
+                {menu === 'mic' && !mobile && (
+                  <div className="mr-pop mr-pop-devices" role="menu">
+                    <DeviceMenu kind="audioinput" title="Microphone" storeKey="audioDeviceId" />
+                    {canPickSpeaker && <DeviceMenu kind="audiooutput" title="Speaker" storeKey="speakerDeviceId" />}
+                    <button type="button" className="mr-menu-link" onClick={() => { setMenu(null); setSettingsOpen(true); }}>{Ic.settings} Audio & video settings</button>
                   </div>
                 )}
               </div>
-            )}
 
-            {tip(handRaised ? 'Lower your hand' : 'Raise your hand', (
-              <button type="button" className={`mr-ctl${handRaised ? ' is-hand' : ''}`} onClick={toggleHand} aria-label={handRaised ? 'Lower your hand' : 'Raise your hand'} aria-pressed={handRaised}>
-                {Ic.hand}
-              </button>
-            ))}
+              <div className="mr-split mr-pop-anchor">
+                {tip(`${lp.isCameraEnabled ? 'Turn off' : 'Turn on'} camera (Ctrl + E)`, (
+                  <button type="button" className={`mr-ctl${lp.isCameraEnabled ? '' : ' is-off'}`} onClick={toggleCam}
+                    aria-label={lp.isCameraEnabled ? 'Turn off camera' : 'Turn on camera'} aria-pressed={!lp.isCameraEnabled}>
+                    {lp.isCameraEnabled ? Ic.cam : Ic.camOff}
+                  </button>
+                ))}
+                {!mobile && (
+                  <button type="button" className={`mr-ctl-caret${menu === 'cam' ? ' is-open' : ''}`} onClick={() => setMenu(menu === 'cam' ? null : 'cam')} aria-label="Cameras">
+                    {Ic.chevronUp}
+                  </button>
+                )}
+                {menu === 'cam' && !mobile && (
+                  <div className="mr-pop mr-pop-devices" role="menu">
+                    <DeviceMenu kind="videoinput" title="Camera" storeKey="videoDeviceId" />
+                    <button type="button" className="mr-menu-link" onClick={() => { setMenu(null); setSettingsOpen(true); }}>{Ic.settings} Audio & video settings</button>
+                  </div>
+                )}
+              </div>
 
-            {mobile && (
-              <button type="button" className={`mr-ctl${panel === 'chat' ? ' is-active' : ''}`} onClick={() => openPanel('chat')} aria-label="Chat">
-                <Badge count={unread} size="small" offset={[4, -4]}>{Ic.chat}</Badge>
-              </button>
-            )}
-
-            <div className="mr-pop-anchor">
-              {tip('More options', (
-                <button type="button" className={`mr-ctl${menu === 'more' ? ' is-active' : ''}`} onClick={() => setMenu(menu === 'more' ? null : 'more')} aria-label="More options">
-                  <Badge dot={isRecording || (mobile && admissions.length > 0)} offset={[-2, 2]}>{Ic.more}</Badge>
+              {!mobile && tip(iAmSharing ? 'Stop presenting' : 'Present your screen', (
+                <button type="button" className={`mr-ctl${iAmSharing ? ' is-active' : ''}`} onClick={toggleShare} aria-label={iAmSharing ? 'Stop presenting' : 'Present your screen'}>
+                  {iAmSharing ? Ic.shareStop : Ic.share}
                 </button>
               ))}
-              {menu === 'more' && !mobile && (
-                <div className="mr-pop mr-pop-more" role="menu">
-                  <div className="mr-menu-title">Layout</div>
-                  <div className="mr-layouts">
-                    {layouts.map(l => (
-                      <button key={l.key} type="button" className={layout === l.key ? 'is-active' : ''} onClick={() => chooseLayout(l.key)}>
-                        {l.icon}<span>{l.label}</span>
+
+              {!mobile && (
+                <div className="mr-pop-anchor">
+                  {tip('Send a reaction', (
+                    <button type="button" className={`mr-ctl${menu === 'reactions' ? ' is-active' : ''}`} onClick={() => setMenu(menu === 'reactions' ? null : 'reactions')} aria-label="Send a reaction">
+                      {Ic.smile}
+                    </button>
+                  ))}
+                  {menu === 'reactions' && (
+                    <div className="mr-pop mr-pop-emoji" role="menu">
+                      {EMOJIS.map(e => <button key={e} type="button" onClick={() => sendEmoji(e)} aria-label={`React ${e}`}>{e}</button>)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {tip(handRaised ? 'Lower your hand' : 'Raise your hand', (
+                <button type="button" className={`mr-ctl${handRaised ? ' is-hand' : ''}`} onClick={toggleHand} aria-label={handRaised ? 'Lower your hand' : 'Raise your hand'} aria-pressed={handRaised}>
+                  {Ic.hand}
+                </button>
+              ))}
+
+              {mobile && (
+                <button type="button" className={`mr-ctl${panel === 'chat' ? ' is-active' : ''}`} onClick={() => openPanel('chat')} aria-label="Chat">
+                  <Badge count={unread} size="small" offset={[4, -4]}>{Ic.chat}</Badge>
+                </button>
+              )}
+
+              <div className="mr-pop-anchor">
+                {tip('More options', (
+                  <button type="button" className={`mr-ctl${menu === 'more' ? ' is-active' : ''}`} onClick={() => setMenu(menu === 'more' ? null : 'more')} aria-label="More options">
+                    <Badge dot={isRecording || (mobile && admissions.length > 0)} offset={[-2, 2]}>{Ic.more}</Badge>
+                  </button>
+                ))}
+                {menu === 'more' && !mobile && (
+                  <div className="mr-pop mr-pop-more" role="menu">
+                    <div className="mr-menu-title">Layout</div>
+                    <div className="mr-layouts">
+                      {layouts.map(l => (
+                        <button key={l.key} type="button" className={layout === l.key ? 'is-active' : ''} onClick={() => chooseLayout(l.key)}>
+                          {l.icon}<span>{l.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mr-menu-sep" />
+                    {moreItems.map(it => (
+                      <button key={it.key} type="button" className={`mr-menu-item${it.active ? ' is-active' : ''}${it.danger ? ' is-danger' : ''}`}
+                        onClick={() => { setMenu(null); it.onClick(); }}>
+                        <span className="mr-menu-ic">{it.icon}</span>
+                        <span className="mr-menu-label">{it.label}</span>
+                        {it.hint && <span className="mr-menu-hint">{it.hint}</span>}
                       </button>
                     ))}
                   </div>
-                  <div className="mr-menu-sep" />
-                  {moreItems.map(it => (
-                    <button key={it.key} type="button" className={`mr-menu-item${it.active ? ' is-active' : ''}${it.danger ? ' is-danger' : ''}`}
-                      onClick={() => { setMenu(null); it.onClick(); }}>
-                      <span className="mr-menu-ic">{it.icon}</span>
-                      <span className="mr-menu-label">{it.label}</span>
-                      {it.hint && <span className="mr-menu-hint">{it.hint}</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                )}
+              </div>
 
-            <div className="mr-pop-anchor">
-              {tip(isHost ? 'Leave or end the class' : 'Leave the class', (
-                <button type="button" className="mr-ctl mr-ctl-leave" aria-label={isHost ? 'Leave or end the class' : 'Leave the class'}
-                  onClick={() => (isHost ? setMenu(menu === 'leave' ? null : 'leave') : setConfirm('leave'))}>
-                  {Ic.leave}
-                </button>
-              ))}
-              {menu === 'leave' && (
-                <div className="mr-pop mr-pop-leave" role="menu">
-                  <button type="button" onClick={() => { setMenu(null); setConfirm('leave'); }}>
-                    <strong>Leave class</strong><span>The class keeps running without you</span>
+              <span className="mr-dock-sep" aria-hidden />
+
+              <div className="mr-pop-anchor">
+                {tip(isHost ? 'Leave or end the session' : 'Leave the session', (
+                  <button type="button" className="mr-ctl mr-ctl-leave" aria-label={isHost ? 'Leave or end the session' : 'Leave the session'}
+                    onClick={() => (isHost ? setMenu(menu === 'leave' ? null : 'leave') : setConfirm('leave'))}>
+                    {Ic.leave}
                   </button>
-                  <button type="button" className="is-danger" onClick={() => { setMenu(null); setConfirm('end'); }}>
-                    <strong>End class for everyone</strong><span>Everyone is disconnected</span>
-                  </button>
-                </div>
-              )}
+                ))}
+                {menu === 'leave' && (
+                  <div className="mr-pop mr-pop-leave" role="menu">
+                    <button type="button" onClick={() => { setMenu(null); setConfirm('leave'); }}>
+                      <strong>Leave session</strong><span>The meeting stays open without you</span>
+                    </button>
+                    <button type="button" className="is-danger" onClick={() => { setMenu(null); setConfirm('end'); }}>
+                      <strong>End meeting for everyone</strong><span>Disconnect all participants</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="mr-bar-side mr-bar-right">
             {!mobile && (
-              <>
+              <div className="mr-dock-side">
                 {panelButton('people', Ic.people, 'People', (
                   <span className="mr-ctl-count">{participants.length}{admissions.length > 0 && <i className="mr-dot" />}</span>
                 ))}
                 {panelButton('chat', Ic.chat, 'Chat', unread > 0 ? <span className="mr-ctl-badge">{unread > 9 ? '9+' : unread}</span> : undefined)}
                 {pollsVisible && panelButton('polls', Ic.poll, activePoll ? 'Live poll' : 'Polls', activePoll ? <i className="mr-dot mr-ctl-dot" /> : undefined)}
-              </>
+              </div>
             )}
           </div>
         </footer>

@@ -200,7 +200,7 @@ const AdminCalendar: React.FC = () => {
         return;
       }
       msg.success(rawEmails.length > 0
-        ? `Meeting scheduled — invitation email sent to ${rawEmails.length} recipient(s)`
+        ? `Meeting scheduled. Invitation email sent to ${rawEmails.length} recipient(s)`
         : 'Meeting scheduled on Admin calendar');
       setCreateOpen(false);
       await fetchCalendar();
@@ -491,7 +491,7 @@ const AdminCalendar: React.FC = () => {
             </Form.Item>
             <Form.Item
               name="invitee_emails"
-              label="Invite emails (optional — one or many)"
+              label="Invite emails (optional, one or many)"
               extra="Every email added receives an automatic invitation with the meeting link, ID, and passcode."
             >
               <Select
@@ -504,7 +504,7 @@ const AdminCalendar: React.FC = () => {
             <Form.Item name="require_approval" label="Joining policy">
               <Radio.Group style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <Radio value={true}>
-                  <strong>Require host approval</strong> — guests wait in the lobby until you admit them
+                  <strong>Require host approval:</strong> guests wait in the lobby until you admit them
                 </Radio>
                 <Radio value={false}>
                   <strong>Anyone with the link or ID &amp; passcode can join</strong> directly once started

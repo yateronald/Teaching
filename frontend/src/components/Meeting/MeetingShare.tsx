@@ -108,7 +108,7 @@ const MeetingShare: React.FC<Props> = ({
           setPasscode(d.passcode);
           setReveal(true);
           onPasscodeChange?.(d.passcode);
-          message.success('New passcode ready — share it with your invitees');
+          message.success('New passcode ready. Share it with your invitees.');
         } catch {
           message.error('The passcode could not be changed. Try again.');
         } finally {
@@ -296,7 +296,7 @@ const MeetingShare: React.FC<Props> = ({
                 <span className="ma-rule-ic is-green">{Ic.people}</span>
                 <div>
                   <strong>{meeting.batch_name ? `Students of ${meeting.batch_name}` : 'Your batch'}</strong>
-                  <span>Join directly from their Live meetings page — no passcode needed.</span>
+                  <span>Join directly from their Live meetings page, no passcode needed.</span>
                 </div>
               </li>
             )}

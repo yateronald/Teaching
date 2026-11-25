@@ -1,14 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Input, Select, Tooltip } from 'antd';
-import { LoadingOutlined, ReloadOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons';
-import { Ic, cleanDeviceLabel, colorFor, initials } from './meetingUi';
+import { ArrowLeftOutlined, LoadingOutlined, ReloadOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons';
+import { Ic, cleanDeviceLabel, cleanMeetingTitle, colorFor, initials } from './meetingUi';
 import './MeetingShell.css';
 
 /* ══════════════════════════════════════════
-   PRE-JOIN — the "Ready to join?" screen
+   PRE-JOIN: camera & audio check before entering
    Owns the ONLY preview stream (one camera + one mic track), so the
    choices made here are exactly what the room publishes.
-══════════════════════════════════════════ */
+   ══════════════════════════════════════════ */
 
 export interface MediaChoices {
     audioEnabled: boolean;
@@ -31,8 +31,8 @@ export const saveMediaChoices = (c: MediaChoices) => {
 type DeviceState = 'pending' | 'ok' | 'off' | 'denied' | 'missing' | 'busy' | 'error';
 type Kind = 'audioinput' | 'videoinput' | 'audiooutput';
 
-const stateFromError = (e: any): DeviceState => {
-    const n = e?.name;
+const stateFromError = (e: unknown): DeviceState => {
+    const n = (e as { name?: string })?.name;
     if (n === 'NotAllowedError' || n === 'SecurityError') return 'denied';
     if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'missing';
     if (n === 'NotReadableError' || n === 'AbortError') return 'busy';
@@ -100,9 +100,27 @@ export interface PreJoinProps {
     /** Leaves the lobby (the host's request list is updated). */
     onStopWaiting?: () => void;
     cancelLabel?: string;
+    /** Renders the standalone Learn French with Natives header for public /meeting/:code links. */
+    brandHeader?: boolean;
 }
 
-const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName, isHost, live, status, onJoin, onCancel, onChoicesChange, meetingCode, guest, onStopWaiting, cancelLabel }) => {
+const PreJoin: React.FC<PreJoinProps> = ({
+    title,
+    hostName,
+    batchName,
+    userName,
+    isHost,
+    live,
+    status,
+    onJoin,
+    onCancel,
+    onChoicesChange,
+    meetingCode,
+    guest,
+    onStopWaiting,
+    cancelLabel,
+    brandHeader = false,
+}) => {
     const [choices, setChoices] = useState<MediaChoices>(loadMediaChoices);
     const [devices, setDevices] = useState<Record<Kind, MediaDeviceInfo[]>>({ audioinput: [], videoinput: [], audiooutput: [] });
     const [active, setActive] = useState({ audio: '', video: '' });
@@ -174,7 +192,6 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
             refreshDevices();
         }).catch(e => {
             if (cancelled) return;
-            // A remembered camera that is no longer plugged in: fall back to the default one.
             if (choices.videoDeviceId && (e?.name === 'OverconstrainedError' || e?.name === 'NotFoundError')) { update({ videoDeviceId: '' }); return; }
             release();
             setCam(stateFromError(e));
@@ -183,9 +200,10 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [choices.videoEnabled, choices.videoDeviceId, nonce]);
 
-    /* ── Microphone + level meter (drives a CSS variable, no re-render per frame) ── */
+    /* ── Microphone + level meter ── */
     const startMeter = (track: MediaStreamTrack) => {
-        const Ctx: typeof AudioContext | undefined = window.AudioContext || (window as any).webkitAudioContext;
+        const win = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+        const Ctx = win.AudioContext || win.webkitAudioContext;
         if (!Ctx) return;
         const ctx = audioCtx.current ?? (audioCtx.current = new Ctx());
         ctx.resume?.().catch(() => { });
@@ -253,7 +271,6 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [choices.audioEnabled, choices.audioDeviceId, nonce]);
 
-    // Release every device when leaving this screen so the room can take them.
     useEffect(() => () => {
         videoTrack.current?.stop();
         audioTrack.current?.stop();
@@ -261,12 +278,13 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
         audioCtx.current?.close().catch(() => { });
     }, []);
 
-    /* ── Speaker test: a short chime routed to the selected output ── */
     const testSpeaker = async () => {
         if (testing) return;
         setTesting(true);
         try {
-            const Ctx: typeof AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+            const win = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+            const Ctx = win.AudioContext || win.webkitAudioContext;
+            if (!Ctx) { setTesting(false); return; }
             const ctx = new Ctx();
             const dest = ctx.createMediaStreamDestination();
             [523.25, 659.25, 783.99].forEach((f, i) => {
@@ -282,10 +300,10 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
                 osc.start(t0);
                 osc.stop(t0 + 0.75);
             });
-            const el = new Audio();
+            const el = new Audio() as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
             el.srcObject = dest.stream;
-            if (choices.speakerDeviceId && typeof (el as any).setSinkId === 'function') {
-                await (el as any).setSinkId(choices.speakerDeviceId).catch(() => { });
+            if (choices.speakerDeviceId && typeof el.setSinkId === 'function') {
+                await el.setSinkId(choices.speakerDeviceId).catch(() => { });
             }
             await el.play();
             window.setTimeout(() => { el.pause(); ctx.close().catch(() => { }); setTesting(false); }, 1400);
@@ -294,22 +312,19 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
         }
     };
 
-    /* ── View helpers ── */
     const options = (kind: Kind, fallback: string) => devices[kind].map((d, i) => ({ value: d.deviceId, label: cleanDeviceLabel(d.label) || `${fallback} ${i + 1}` }));
     const pick = (kind: Kind, id: string) => (id && devices[kind].some(d => d.deviceId === id) ? id : undefined);
-    const toneOf = (s: DeviceState) => (s === 'ok' ? 'ok' : s === 'off' ? 'off' : s === 'pending' ? 'pending' : 'bad');
-
-    const camText = cam === 'off' ? 'Camera is off' : cam === 'ok' ? 'Working' : cam === 'pending' ? 'Starting…' : PROBLEM[cam];
-    const micText = mic === 'off' ? 'Muted' : mic === 'ok' ? (speaking ? 'We can hear you' : 'Say something to test it') : mic === 'pending' ? 'Starting…' : PROBLEM[mic];
-    const previewText = cam === 'off' ? 'Your camera is off' : cam === 'pending' ? 'Starting camera…' : `Camera: ${PROBLEM[cam]?.toLowerCase()}`;
+    const previewText = cam === 'off' ? 'Your camera is off' : cam === 'pending' ? 'Starting camera...' : `Camera: ${PROBLEM[cam]?.toLowerCase()}`;
+    const displayTitle = cleanMeetingTitle(title);
+    const activeName = (guest?.displayName !== undefined ? guest.displayName.trim() : '') || userName;
 
     const waiting = status === 'waiting' || status === 'lobby';
     const host = hostName || 'your teacher';
     const primaryLabel = isHost
         ? (live ? 'Rejoin class' : 'Start class')
         : status === 'not_ready' ? 'Check again'
-            : status === 'waiting' ? 'Waiting for host to start…'
-                : status === 'lobby' ? 'Waiting to be let in…'
+            : status === 'waiting' ? 'Waiting for host to start...'
+                : status === 'lobby' ? 'Waiting to be let in...'
                     : guest ? (guest.primaryActionLabel || 'Ask to join')
                         : 'Join now';
     const passMissing = !!guest?.needsPasscode && cleanPass(guest.passcode).length < PASS_LEN;
@@ -318,178 +333,188 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
     const note = guest && !isHost
         ? guest.customStatusTitle
             ? { tone: 'wait', title: guest.customStatusTitle, text: guest.customStatusText || '' }
-            : status === 'lobby' ? { tone: 'wait', title: 'You’re in the lobby', text: `${host} has been notified and will let you in shortly. Keep this page open.` }
+            : status === 'lobby' ? { tone: 'wait', title: 'You are in the lobby', text: `${host} has been notified and will let you in shortly. Keep this page open.` }
                 : status === 'waiting' || status === 'not_ready' ? { tone: 'wait', title: `${host} has not yet started the meeting`, text: 'You will enter automatically as soon as the host starts the meeting.' }
                     : { tone: 'info', title: guest.primaryActionLabel || 'Ask to join', text: `${guest.needsPasscode ? 'Enter the passcode from your invitation, then ' : ''}${guest.primaryActionLabel === 'Join meeting' ? 'click Join meeting to enter once live.' : `${host} will let you in.`}` }
         : isHost
-        ? (live
-            ? { tone: 'live', title: 'Your class is running', text: 'Rejoin to continue teaching.' }
-            : { tone: 'info', title: 'Your students are waiting', text: batchName ? `Students in ${batchName} join automatically once you start. Anyone else asks to join.` : 'Participants ask to join and you admit them.' })
-        : status === 'waiting' ? { tone: 'wait', title: `Waiting for ${hostName || 'your teacher'}`, text: "The class hasn't started yet. You'll join automatically as soon as it does." }
-            : status === 'lobby' ? { tone: 'wait', title: 'Asking to be let in', text: 'The host has been notified. You will join as soon as they admit you.' }
-                : status === 'not_ready' ? { tone: 'muted', title: "This class hasn't opened yet", text: 'Your teacher opens the room shortly before the start time. Check your devices now and come back.' }
-                    : live ? { tone: 'live', title: 'Class is live', text: `${hostName || 'Your teacher'} is in the room.` }
-                        : { tone: 'info', title: 'Get ready', text: 'Check your camera and microphone, then join.' };
+            ? (live
+                ? { tone: 'live', title: 'Your class is running', text: 'Rejoin to continue teaching.' }
+                : { tone: 'info', title: 'Your students are waiting', text: batchName ? `Students in ${batchName} join automatically once you start. Anyone else asks to join.` : 'Participants ask to join and you admit them.' })
+            : status === 'waiting' ? { tone: 'wait', title: `Waiting for ${hostName || 'your teacher'}`, text: "The class hasn't started yet. You'll join automatically as soon as it does." }
+                : status === 'lobby' ? { tone: 'wait', title: 'Asking to be let in', text: 'The host has been notified. You will join as soon as they admit you.' }
+                    : status === 'not_ready' ? { tone: 'muted', title: "This class hasn't opened yet", text: 'Your teacher opens the room shortly before the start time. Check your devices now and come back.' }
+                        : live ? { tone: 'live', title: 'Class is live', text: `${hostName || 'Your teacher'} is in the room.` }
+                            : { tone: 'info', title: 'Ready when you are', text: 'Confirm your name and check your camera and microphone before joining.' };
 
     const blocked = cam === 'denied' || mic === 'denied';
     const busy = cam === 'busy' || mic === 'busy';
 
     return (
-        <div className="pj" ref={rootRef}>
-            <div className="pj-grid">
-                {/* ── Preview + devices ── */}
-                <section className="pj-stage" aria-label="Camera preview">
-                    <div className={`pj-preview${hasVideo ? ' has-video' : ''}`}>
-                        <video ref={videoRef} autoPlay muted playsInline />
-                        {!hasVideo && (
-                            <div className="pj-off">
-                                <span className="pj-avatar" style={{ background: colorFor(userName) }}>{initials(userName)}</span>
-                                <span className="pj-off-text">{cam === 'pending' && <LoadingOutlined />} {previewText}</span>
+        <div className={`pj${brandHeader ? ' pj-is-public' : ''}`} ref={rootRef}>
+            {brandHeader && (
+                <>
+                    <div className="pj-tricolor" aria-hidden />
+                    <header className="pj-brandbar">
+                        <div className="pj-brandbar-inner">
+                            <div className="pj-brand">
+                                <img src="/assets/Logo.png" alt="" width={36} height={36} />
+                                <span>
+                                    <strong>Learn French</strong>
+                                    <em>with Natives</em>
+                                </span>
+                            </div>
+                            <div className="pj-brandbar-end">
+                                {meetingCode && <span className="pj-code-pill">{Ic.hash} {meetingCode}</span>}
+                                <Button size="small" icon={<ArrowLeftOutlined />} onClick={onCancel}>
+                                    {cancelLabel || 'Change meeting'}
+                                </Button>
+                            </div>
+                        </div>
+                    </header>
+                </>
+            )}
+
+            <div className="pj-body">
+                <div className="pj-grid">
+                    {/* ── Preview + devices ── */}
+                    <section className="pj-stage" aria-label="Camera preview">
+                        <div className={`pj-preview${hasVideo ? ' has-video' : ''}`}>
+                            <video ref={videoRef} autoPlay muted playsInline />
+                            {!hasVideo && (
+                                <div className="pj-off">
+                                    <span className="pj-avatar" style={{ background: colorFor(activeName) }}>{initials(activeName)}</span>
+                                    <span className="pj-off-text">{cam === 'pending' && <LoadingOutlined />} {previewText}</span>
+                                </div>
+                            )}
+                            <div className="pj-preview-top">
+                                <span className="pj-name">{activeName}</span>
+                                {mic === 'ok' && <span className={`pj-meter${speaking ? ' is-on' : ''}`} aria-hidden><i /><i /><i /></span>}
+                            </div>
+                            <div className="pj-toggles">
+                                <Tooltip title={choices.audioEnabled ? 'Turn off microphone' : 'Turn on microphone'}>
+                                    <button type="button" className={`pj-toggle${choices.audioEnabled ? '' : ' is-off'}`} aria-pressed={!choices.audioEnabled}
+                                        aria-label={choices.audioEnabled ? 'Turn off microphone' : 'Turn on microphone'}
+                                        onClick={() => update({ audioEnabled: !choices.audioEnabled })}>
+                                        {choices.audioEnabled ? Ic.mic : Ic.micOff}
+                                    </button>
+                                </Tooltip>
+                                <Tooltip title={choices.videoEnabled ? 'Turn off camera' : 'Turn on camera'}>
+                                    <button type="button" className={`pj-toggle${choices.videoEnabled ? '' : ' is-off'}`} aria-pressed={!choices.videoEnabled}
+                                        aria-label={choices.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
+                                        onClick={() => update({ videoEnabled: !choices.videoEnabled })}>
+                                        {choices.videoEnabled ? Ic.cam : Ic.camOff}
+                                    </button>
+                                </Tooltip>
+                            </div>
+                        </div>
+
+                        {(blocked || busy) && (
+                            <div className="pj-alert" role="alert">
+                                <div>
+                                    <strong>{blocked ? 'Camera or microphone blocked in browser' : 'Camera or microphone is in use'}</strong>
+                                    <p>{blocked
+                                        ? 'Click the camera/lock icon in your browser address bar, allow access, and try again.'
+                                        : 'Close any other video app currently using your camera or microphone, then retry.'}</p>
+                                </div>
+                                <Button size="small" icon={<ReloadOutlined />} onClick={() => setNonce(n => n + 1)}>Try again</Button>
                             </div>
                         )}
-                        <div className="pj-preview-top">
-                            <span className="pj-name">{userName}</span>
-                            {mic === 'ok' && <span className={`pj-meter${speaking ? ' is-on' : ''}`} aria-hidden><i /><i /><i /></span>}
-                        </div>
-                        <div className="pj-toggles">
-                            <Tooltip title={choices.audioEnabled ? 'Turn off microphone' : 'Turn on microphone'}>
-                                <button type="button" className={`pj-toggle${choices.audioEnabled ? '' : ' is-off'}`} aria-pressed={!choices.audioEnabled}
-                                    aria-label={choices.audioEnabled ? 'Turn off microphone' : 'Turn on microphone'}
-                                    onClick={() => update({ audioEnabled: !choices.audioEnabled })}>
-                                    {choices.audioEnabled ? Ic.mic : Ic.micOff}
-                                </button>
-                            </Tooltip>
-                            <Tooltip title={choices.videoEnabled ? 'Turn off camera' : 'Turn on camera'}>
-                                <button type="button" className={`pj-toggle${choices.videoEnabled ? '' : ' is-off'}`} aria-pressed={!choices.videoEnabled}
-                                    aria-label={choices.videoEnabled ? 'Turn off camera' : 'Turn on camera'}
-                                    onClick={() => update({ videoEnabled: !choices.videoEnabled })}>
-                                    {choices.videoEnabled ? Ic.cam : Ic.camOff}
-                                </button>
-                            </Tooltip>
-                        </div>
-                    </div>
 
-                    {(blocked || busy) && (
-                        <div className="pj-alert" role="alert">
+                        <div className="pj-devices">
+                            <div className={`pj-dev${isProblem(mic) ? ' is-bad' : speaking ? ' is-ok' : ''}`}>
+                                <span className="pj-dev-ic">{mic === 'off' || isProblem(mic) ? Ic.micOff : Ic.mic}</span>
+                                <Select className="pj-select" variant="borderless" placeholder="Default microphone" popupMatchSelectWidth={false}
+                                    value={pick('audioinput', effective.audioDeviceId)} options={options('audioinput', 'Microphone')}
+                                    disabled={!devices.audioinput.length} onChange={v => update({ audioDeviceId: v, audioEnabled: true })} />
+                                {mic === 'ok' && <span className="pj-dev-level" aria-hidden><i /></span>}
+                            </div>
+                            <div className="pj-dev">
+                                <span className="pj-dev-ic">{Ic.speaker}</span>
+                                {canPickSpeaker && devices.audiooutput.length > 0 ? (
+                                    <Select className="pj-select" variant="borderless" placeholder="Default speaker" popupMatchSelectWidth={false}
+                                        value={pick('audiooutput', choices.speakerDeviceId)} options={options('audiooutput', 'Speaker')}
+                                        onChange={v => update({ speakerDeviceId: v })} />
+                                ) : <span className="pj-dev-static">System speaker</span>}
+                                <button type="button" className="pj-dev-test" onClick={testSpeaker} disabled={testing}>
+                                    {testing ? 'Playing...' : 'Test'}
+                                </button>
+                            </div>
+                            <div className={`pj-dev${isProblem(cam) ? ' is-bad' : ''}`}>
+                                <span className="pj-dev-ic">{cam === 'off' || isProblem(cam) ? Ic.camOff : Ic.cam}</span>
+                                <Select className="pj-select" variant="borderless" placeholder="Default camera" popupMatchSelectWidth={false}
+                                    value={pick('videoinput', effective.videoDeviceId)} options={options('videoinput', 'Camera')}
+                                    disabled={!devices.videoinput.length} onChange={v => update({ videoDeviceId: v, videoEnabled: true })} />
+                            </div>
+                        </div>
+                    </section>
+
+                    {/* ── Join panel ── */}
+                    <aside className="pj-side">
+                        <span className="pj-over">{isHost ? (live ? 'Live class' : 'Ready to start') : 'Live session'}</span>
+                        <h1 className="pj-title">{displayTitle}</h1>
+                        <div className="pj-meta">
+                            {hostName && <span><UserOutlined /> {isHost ? 'You are the host' : `Hosted by ${hostName}`}</span>}
+                            {batchName && <span><TeamOutlined /> {batchName}</span>}
+                            {meetingCode && !brandHeader && <span className="pj-code">{Ic.hash} {meetingCode}</span>}
+                        </div>
+
+                        <div className={`pj-note is-${note.tone}${status === 'lobby' ? ' is-lobby' : ''}`}>
+                            <span className="pj-note-ic">{note.tone === 'live' ? <i className="pj-pulse" /> : status === 'lobby' ? Ic.door : waiting ? <LoadingOutlined /> : Ic.info}</span>
                             <div>
-                                <strong>{blocked ? 'Allow your camera and microphone' : 'Your camera or microphone is busy'}</strong>
-                                <p>{blocked
-                                    ? 'Click the camera icon in the address bar, choose “Allow”, then try again.'
-                                    : 'Another app (Zoom, Teams, …) is using it. Close that app, then try again.'}</p>
+                                <strong>{note.title}{status === 'lobby' && guest?.since ? <span className="pj-wait-clock"><WaitClock since={guest.since} /></span> : null}</strong>
+                                <p>{note.text}</p>
                             </div>
-                            <Button size="small" icon={<ReloadOutlined />} onClick={() => setNonce(n => n + 1)}>Try again</Button>
                         </div>
-                    )}
 
-                    <div className="pj-devices">
-                        <div className="pj-dev">
-                            <span className="pj-dev-ic">{Ic.mic}</span>
-                            <Select className="pj-select" variant="borderless" placeholder="Default microphone" popupMatchSelectWidth={false}
-                                value={pick('audioinput', effective.audioDeviceId)} options={options('audioinput', 'Microphone')}
-                                disabled={!devices.audioinput.length} onChange={v => update({ audioDeviceId: v, audioEnabled: true })} />
-                            {mic === 'ok' && <span className="pj-dev-level" aria-hidden><i /></span>}
-                        </div>
-                        <div className="pj-dev">
-                            <span className="pj-dev-ic">{Ic.speaker}</span>
-                            {canPickSpeaker && devices.audiooutput.length > 0 ? (
-                                <Select className="pj-select" variant="borderless" placeholder="Default speaker" popupMatchSelectWidth={false}
-                                    value={pick('audiooutput', choices.speakerDeviceId)} options={options('audiooutput', 'Speaker')}
-                                    onChange={v => update({ speakerDeviceId: v })} />
-                            ) : <span className="pj-dev-static">System default speaker</span>}
-                        </div>
-                        <div className="pj-dev">
-                            <span className="pj-dev-ic">{Ic.cam}</span>
-                            <Select className="pj-select" variant="borderless" placeholder="Default camera" popupMatchSelectWidth={false}
-                                value={pick('videoinput', effective.videoDeviceId)} options={options('videoinput', 'Camera')}
-                                disabled={!devices.videoinput.length} onChange={v => update({ videoDeviceId: v, videoEnabled: true })} />
-                        </div>
-                    </div>
-                </section>
-
-                {/* ── Join panel ── */}
-                <aside className="pj-side">
-                    <span className="pj-over">{isHost ? (live ? 'Your class' : 'Ready to start?') : 'Ready to join?'}</span>
-                    <h1 className="pj-title">{title}</h1>
-                    <div className="pj-meta">
-                        {hostName && <span><UserOutlined /> {isHost ? 'You are the host' : `Hosted by ${hostName}`}</span>}
-                        {batchName && <span><TeamOutlined /> {batchName}</span>}
-                        {meetingCode && <span className="pj-code">{Ic.hash} {meetingCode}</span>}
-                    </div>
-
-                    <div className={`pj-note is-${note.tone}${status === 'lobby' ? ' is-lobby' : ''}`}>
-                        <span className="pj-note-ic">{note.tone === 'live' ? <i className="pj-pulse" /> : status === 'lobby' ? Ic.door : waiting ? <LoadingOutlined /> : Ic.info}</span>
-                        <div>
-                            <strong>{note.title}{status === 'lobby' && guest?.since ? <span className="pj-wait-clock"><WaitClock since={guest.since} /></span> : null}</strong>
-                            <p>{note.text}</p>
-                        </div>
-                    </div>
-
-                    {guest?.onDisplayNameChange && !isHost && !waiting && (
-                        <div className="pj-pass" style={{ marginBottom: guest?.needsPasscode ? 12 : 16 }}>
-                            <label className="pj-pass-label" htmlFor="pj-guest-name">{Ic.user} Your name</label>
-                            <Input
-                                id="pj-guest-name"
-                                size="large"
-                                maxLength={80}
-                                placeholder="Enter your full name"
-                                value={guest.displayName || ''}
-                                onChange={e => guest.onDisplayNameChange?.(e.target.value)}
-                                onKeyDown={e => { if (e.key === 'Enter' && !passMissing && !nameMissing) { e.preventDefault(); onJoin(effective); } }}
-                            />
-                            {guest.onEmailChange && (
+                        {guest?.onDisplayNameChange && !isHost && !waiting && (
+                            <div className="pj-pass" style={{ marginBottom: guest?.needsPasscode ? 12 : 16 }}>
+                                <label className="pj-pass-label" htmlFor="pj-guest-name">{Ic.user} Your name</label>
                                 <Input
-                                    size="middle"
-                                    type="email"
-                                    style={{ marginTop: 8 }}
-                                    placeholder="Email (optional)"
-                                    value={guest.email || ''}
-                                    onChange={e => guest.onEmailChange?.(e.target.value)}
+                                    id="pj-guest-name"
+                                    size="large"
+                                    maxLength={80}
+                                    placeholder="Enter your full name"
+                                    value={guest.displayName || ''}
+                                    onChange={e => guest.onDisplayNameChange?.(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter' && !passMissing && !nameMissing) { e.preventDefault(); onJoin(effective); } }}
                                 />
-                            )}
-                        </div>
-                    )}
-
-                    {guest?.needsPasscode && !isHost && !waiting && (
-                        <div className="pj-pass">
-                            <label className="pj-pass-label" id="pj-pass-label">{Ic.key} Passcode</label>
-                            <div className="pj-otp" onKeyDown={e => { if (e.key === 'Enter' && !passMissing) { e.preventDefault(); onJoin(effective); } }}>
-                                <Input.OTP length={PASS_LEN} size="large" value={cleanPass(guest.passcode)} formatter={cleanPass}
-                                    onChange={v => guest.onPasscodeChange(cleanPass(v))} status={guest.error ? 'error' : undefined} aria-labelledby="pj-pass-label" />
+                                {guest.onEmailChange && (
+                                    <Input
+                                        size="middle"
+                                        type="email"
+                                        style={{ marginTop: 8 }}
+                                        placeholder="Email (optional)"
+                                        value={guest.email || ''}
+                                        onChange={e => guest.onEmailChange?.(e.target.value)}
+                                    />
+                                )}
                             </div>
-                            <span className={`pj-pass-help${guest.error ? ' is-error' : ''}`}>{guest.error || 'Six characters, from the invitation. Not case-sensitive.'}</span>
+                        )}
+
+                        {guest?.needsPasscode && !isHost && !waiting && (
+                            <div className="pj-pass">
+                                <label className="pj-pass-label" id="pj-pass-label">{Ic.key} Passcode</label>
+                                <div className="pj-otp" onKeyDown={e => { if (e.key === 'Enter' && !passMissing) { e.preventDefault(); onJoin(effective); } }}>
+                                    <Input.OTP length={PASS_LEN} size="large" value={cleanPass(guest.passcode)} formatter={cleanPass}
+                                        onChange={v => guest.onPasscodeChange(cleanPass(v))} status={guest.error ? 'error' : undefined} aria-labelledby="pj-pass-label" />
+                                </div>
+                                <span className={`pj-pass-help${guest.error ? ' is-error' : ''}`}>{guest.error || 'Six characters from your invitation. Not case-sensitive.'}</span>
+                            </div>
+                        )}
+
+                        <div className="pj-actions">
+                            <Button type="primary" size="large" block loading={status === 'joining'} disabled={waiting || passMissing || nameMissing}
+                                icon={waiting ? undefined : guest && !isHost ? Ic.door : Ic.cam} onClick={() => onJoin(effective)}>
+                                {primaryLabel}
+                            </Button>
+                            <Button size="large" block onClick={status === 'lobby' && onStopWaiting ? onStopWaiting : onCancel}>
+                                {status === 'lobby' ? 'Stop waiting' : waiting ? 'Leave waiting room' : (cancelLabel || 'Back to meetings')}
+                            </Button>
                         </div>
-                    )}
-
-                    <ul className="pj-checks" aria-label="Device check">
-                        <li className={`is-${toneOf(cam)}`}>
-                            <span className="pj-check-ic">{cam === 'off' ? Ic.camOff : Ic.cam}</span>
-                            <span className="pj-check-text"><b>Camera</b><em>{camText}</em></span>
-                            <span className="pj-dot" />
-                        </li>
-                        <li className={`is-${toneOf(mic)}${speaking ? ' is-hearing' : ''}`}>
-                            <span className="pj-check-ic">{mic === 'off' ? Ic.micOff : Ic.mic}</span>
-                            <span className="pj-check-text"><b>Microphone</b><em>{micText}</em></span>
-                            <span className="pj-dot" />
-                        </li>
-                        <li className="is-off">
-                            <span className="pj-check-ic">{Ic.speaker}</span>
-                            <span className="pj-check-text"><b>Speaker</b><em>{testing ? 'Playing a test sound…' : 'Play a sound to check it'}</em></span>
-                            <Button size="small" onClick={testSpeaker} loading={testing}>Test</Button>
-                        </li>
-                    </ul>
-
-                    <div className="pj-actions">
-                        <Button type="primary" size="large" block loading={status === 'joining'} disabled={waiting || passMissing || nameMissing}
-                            icon={waiting ? undefined : guest && !isHost ? Ic.door : Ic.cam} onClick={() => onJoin(effective)}>
-                            {primaryLabel}
-                        </Button>
-                        <Button size="large" block onClick={status === 'lobby' && onStopWaiting ? onStopWaiting : onCancel}>
-                            {status === 'lobby' ? 'Stop waiting' : waiting ? 'Leave' : (cancelLabel || 'Back to meetings')}
-                        </Button>
-                    </div>
-                    <p className="pj-tip">In the call: <kbd>Ctrl</kbd> + <kbd>D</kbd> microphone · <kbd>Ctrl</kbd> + <kbd>E</kbd> camera</p>
-                    {(isProblem(cam) && isProblem(mic)) && <p className="pj-tip">You can still join and listen without a camera or microphone.</p>}
-                </aside>
+                        <p className="pj-tip">Shortcuts in call: <kbd>Ctrl</kbd> + <kbd>D</kbd> mic · <kbd>Ctrl</kbd> + <kbd>E</kbd> camera</p>
+                        {(isProblem(cam) && isProblem(mic)) && <p className="pj-tip">You can still join to listen without a camera or microphone.</p>}
+                    </aside>
+                </div>
             </div>
         </div>
     );

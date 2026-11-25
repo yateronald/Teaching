@@ -1,15 +1,14 @@
-const { baseHtml, detailCard, ctaButton, infoStrip, escapeHtml, formatRecipientTime, getSupportEmail } = require('./base');
+const { baseHtml, detailCard, ctaButton, infoStrip, escapeHtml, formatRecipientTime, getSupportEmail, BRAND } = require('./base');
 
 /**
  * Email sent to demo prospects and external meeting invitees containing
- * the direct public meeting link (/meeting/:code#pwd=...), Meeting ID, Passcode,
- * and waiting-room / direct-entry instructions.
+ * the direct public meeting link (/meeting/:code#pwd=...), Meeting ID, and Passcode.
+ * Intentionally avoids exposing any administrator's personal name.
  */
 function buildPublicMeetingInviteTemplate({
     recipientName,
     title,
     description,
-    hostName,
     scheduledStart,
     scheduledEnd,
     recipientTimezone,
@@ -21,13 +20,12 @@ function buildPublicMeetingInviteTemplate({
     notes,
     supportEmail,
 }) {
-    const safeName = recipientName || 'there';
+    const firstName = String(recipientName || '').trim().split(/\s+/)[0] || 'there';
     const tz = recipientTimezone || 'UTC';
     const support = supportEmail || getSupportEmail();
-    const cleanTitle = title || (isDemo ? 'French Demo Class' : 'Live Meeting');
+    const cleanTitle = title || (isDemo ? 'French Demo Session' : 'Live Meeting');
 
     const startStr = scheduledStart ? formatRecipientTime(scheduledStart, tz) : null;
-    const endStr = scheduledEnd ? formatRecipientTime(scheduledEnd, tz) : null;
 
     let durationStr = null;
     if (scheduledStart && scheduledEnd) {
@@ -35,93 +33,104 @@ function buildPublicMeetingInviteTemplate({
         if (Number.isFinite(mins) && mins > 0) {
             durationStr = mins >= 60
                 ? `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ''}`
-                : `${mins} min`;
+                : `${mins} minutes`;
         }
     }
 
     const subject = isDemo
-        ? `Your French demo meeting is scheduled — ${cleanTitle}`
-        : `Meeting invitation: ${cleanTitle}`;
+        ? 'Your French demo session is confirmed'
+        : `Session invitation: ${cleanTitle}`;
     const preheader = startStr
-        ? `${cleanTitle} on ${startStr}. Meeting link and ID inside.`
-        : `You are invited to ${cleanTitle}. Meeting link and ID inside.`;
+        ? `${startStr}. Join link, Meeting ID, and passcode inside.`
+        : `Join details for ${cleanTitle}.`;
 
-    const portalBase = (process.env.FRONTEND_URL || 'https://www.learnfrenchwithnatives.com').replace(/\/$/, '');
+    const portalBase = (process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '');
     const entryUrl = `${portalBase}/meeting`;
 
-    const detailRows = [
-        { label: 'Meeting', value: escapeHtml(cleanTitle) },
-        { label: 'Host', value: hostName ? escapeHtml(hostName) : null },
-        { label: `Start (${tz})`, value: startStr ? escapeHtml(startStr) : null },
-        { label: `End (${tz})`, value: endStr ? escapeHtml(endStr) : null },
+    const sessionRows = [
+        { label: 'Session', value: escapeHtml(cleanTitle) },
+        { label: `Date & time (${tz})`, value: startStr ? escapeHtml(startStr) : null },
         { label: 'Duration', value: durationStr ? escapeHtml(durationStr) : null },
-    ];
-
-    const accessRows = [
-        { label: 'Meeting ID', value: meetingCode ? `<code style="font-family:monospace;font-size:15px;letter-spacing:0.6px;">${escapeHtml(meetingCode)}</code>` : null },
-        { label: 'Passcode', value: passcode ? `<code style="font-family:monospace;font-size:15px;letter-spacing:1.2px;">${escapeHtml(passcode)}</code>` : null },
-        { label: 'Meeting page', value: `<a href="${escapeHtml(entryUrl)}" style="color:#4338ca;text-decoration:none;">${escapeHtml(entryUrl)}</a>` },
+        {
+            label: 'Meeting ID',
+            value: meetingCode
+                ? `<span style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14.5px; letter-spacing: 0.6px; color: ${BRAND.text};">${escapeHtml(meetingCode)}</span>`
+                : null,
+        },
+        {
+            label: 'Passcode',
+            value: passcode
+                ? `<span style="font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14.5px; letter-spacing: 1.4px; color: ${BRAND.text};">${escapeHtml(passcode)}</span>`
+                : null,
+        },
     ];
 
     const accessNotice = requireApproval
-        ? `<strong>Approval required:</strong> Once the host starts the meeting, you will wait briefly in the lobby until ${hostName ? escapeHtml(hostName) : 'the host'} lets you in.`
-        : '<strong>Direct entry:</strong> Anyone with this meeting link or the Meeting ID &amp; passcode can join as soon as the host starts the meeting.';
+        ? (isDemo
+            ? 'When you open the link at your scheduled time, you will wait briefly in the lobby until an instructor lets you in.'
+            : 'When you open the link, you will wait briefly in the lobby until your host admits you.')
+        : 'Anyone with the session link or the Meeting ID and passcode can join as soon as the session begins.';
 
     const extraNotes = notes || description;
-    const notesCard = extraNotes
-        ? detailCard({ title: 'Notes', rows: [{ label: 'Details', value: escapeHtml(extraNotes) }] })
+    const notesBlock = extraNotes
+        ? infoStrip({
+            tone: 'muted',
+            text: `<strong>Note:</strong> ${escapeHtml(extraNotes)}`,
+        })
         : '';
 
     const bodyHtml = `
-      <p style="margin:0 0 14px; font-size:15px; color:#0f172a;">Hi <strong>${escapeHtml(safeName)}</strong>,</p>
-      <p style="margin:0 0 22px; font-size:14.5px; color:#475569; line-height:1.65;">
+      <p style="margin: 0 0 14px; font-size: 15px; color: ${BRAND.text}; line-height: 1.55;">
+        Hello ${escapeHtml(firstName)},
+      </p>
+      <p style="margin: 0 0 22px; font-size: 14.5px; color: ${BRAND.textBody}; line-height: 1.65;">
         ${isDemo
-            ? 'Your French demo meeting is confirmed! Use the button or meeting credentials below when it is time to join.'
-            : 'You have been invited to an online meeting on Learn French with Natives. Use the button or credentials below to join.'}
+            ? 'Your French demo session is scheduled. An instructor will meet you in the classroom at the time below.'
+            : 'You have been invited to a live session on Learn French with Natives. Use the link or credentials below when it is time to join.'}
       </p>
 
-      ${detailCard({ title: 'Meeting schedule', rows: detailRows })}
-      ${detailCard({ title: 'How to join', rows: accessRows })}
+      ${detailCard({ title: 'Session details', rows: sessionRows })}
 
-      ${meetingUrl ? ctaButton({ label: 'Join meeting', href: escapeHtml(meetingUrl) }) : ''}
+      ${meetingUrl ? ctaButton({ label: 'Join session', href: escapeHtml(meetingUrl) }) : ''}
 
       ${infoStrip({ tone: 'info', text: accessNotice })}
 
-      ${notesCard}
+      ${notesBlock}
 
-      <p style="margin: 12px 0 0; font-size: 12.5px; color: #64748b; line-height: 1.6;">
-        If the host has not started the meeting yet when you open the link, keep the page open — you will enter automatically as soon as they start.<br />
-        Need to reschedule? Contact <a href="mailto:${escapeHtml(support)}" style="color: #4338ca;">${escapeHtml(support)}</a>.
+      <p style="margin: 0 0 10px; font-size: 12.5px; color: ${BRAND.textMuted}; line-height: 1.6;">
+        Prefer entering your Meeting ID manually? Visit <a href="${escapeHtml(entryUrl)}" style="color: ${BRAND.primary}; text-decoration: none; font-weight: 600;">${escapeHtml(entryUrl)}</a>. If the room has not opened yet, keep the page open and you will enter once it starts.
+      </p>
+      <p style="margin: 0; font-size: 12.5px; color: ${BRAND.textMuted}; line-height: 1.6;">
+        Need to reschedule? Contact <a href="mailto:${escapeHtml(support)}" style="color: ${BRAND.primary}; text-decoration: none; font-weight: 600;">${escapeHtml(support)}</a>.
       </p>
     `;
 
     const html = baseHtml({
         subject,
         preheader,
-        eyebrow: isDemo ? 'DEMO MEETING' : 'MEETING INVITATION',
-        title: isDemo ? 'Your demo meeting is confirmed' : cleanTitle,
+        eyebrow: isDemo ? 'DEMO SESSION CONFIRMED' : 'LIVE SESSION',
+        title: isDemo ? 'Your French demo session is confirmed' : cleanTitle,
         bodyHtml,
     });
 
     const textLines = [
-        `Hi ${safeName},`,
+        `Hello ${firstName},`,
         '',
         isDemo
-            ? 'Your French demo meeting is confirmed.'
-            : `You are invited to: ${cleanTitle}`,
-        hostName ? `Host: ${hostName}` : null,
-        startStr ? `Start (${tz}): ${startStr}` : null,
-        endStr ? `End (${tz}): ${endStr}` : null,
+            ? 'Your French demo session is scheduled. An instructor will meet you in the classroom at the time below.'
+            : `You have been invited to: ${cleanTitle}`,
+        '',
+        `Session: ${cleanTitle}`,
+        startStr ? `Date & time (${tz}): ${startStr}` : null,
+        durationStr ? `Duration: ${durationStr}` : null,
         meetingUrl ? `Join link: ${meetingUrl}` : null,
         meetingCode ? `Meeting ID: ${meetingCode}` : null,
         passcode ? `Passcode: ${passcode}` : null,
         `Entry page: ${entryUrl}`,
-        extraNotes ? `Notes: ${extraNotes}` : null,
+        extraNotes ? `Note: ${extraNotes}` : null,
         '',
-        requireApproval
-            ? 'Note: The host will admit you from the waiting room once the meeting starts.'
-            : 'Note: Anyone with the link or Meeting ID & passcode can join once the meeting starts.',
-        `Need help? Email ${support}`,
+        accessNotice,
+        `Need to reschedule? Email ${support}.`,
     ].filter(Boolean);
 
     return { subject, html, text: textLines.join('\n') };

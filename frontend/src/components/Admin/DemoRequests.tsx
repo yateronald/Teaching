@@ -6,7 +6,7 @@ import type { ColumnsType } from 'antd/es/table';
 import {
   CalendarOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CloseOutlined, CopyOutlined, DeleteOutlined,
   DownloadOutlined, EditOutlined, EnvironmentOutlined, ExclamationCircleFilled, LinkOutlined, MailOutlined, MoreOutlined,
-  PhoneOutlined, ReloadOutlined, RightOutlined, SearchOutlined, SendOutlined, StopOutlined, TeamOutlined, TrophyOutlined, UserOutlined,
+  PhoneOutlined, PlusOutlined, ReloadOutlined, RightOutlined, SearchOutlined, SendOutlined, StopOutlined, TeamOutlined, TrophyOutlined, UserOutlined,
   VideoCameraOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -39,12 +39,20 @@ interface AvailabilityRequest {
   proposed_end_date: string;
   proposed_time_start: string;
   proposed_time_end: string;
+  proposed_slots?: AvailabilitySlot[] | null;
   admin_note?: string | null;
   expires_at?: string;
   submitted_at?: string | null;
   submitted_timezone?: string | null;
   submitted_slots?: AvailabilitySlot[] | null;
   submitted_note?: string | null;
+}
+
+interface ProposedSlotDraft {
+  id: number;
+  date: Dayjs | null;
+  start: Dayjs | null;
+  end: Dayjs | null;
 }
 
 interface LinkedMeeting {
@@ -196,6 +204,8 @@ const DemoRequests: React.FC = () => {
   const [scheduleMode, setScheduleMode] = useState<'platform' | 'external'>('platform');
   const [scheduling, setScheduling] = useState(false);
   const [availFor, setAvailFor] = useState<DemoRequest | null>(null);
+  const [proposedSlots, setProposedSlots] = useState<ProposedSlotDraft[]>([]);
+  const [availError, setAvailError] = useState<string | null>(null);
   const [sendingAvail, setSendingAvail] = useState(false);
   const [statusFor, setStatusFor] = useState<DemoRequest | null>(null);
   const [statusChoice, setStatusChoice] = useState<Status>('new');
@@ -312,41 +322,103 @@ const DemoRequests: React.FC = () => {
 
   const openAskAvailability = (req: DemoRequest) => {
     setAvailFor(req);
+    setAvailError(null);
     availForm.resetFields();
     availForm.setFieldsValue({
-      dateRange: [dayjs().add(1, 'day'), dayjs().add(7, 'day')],
-      timeStart: dayjs('09:00', 'HH:mm'),
-      timeEnd: dayjs('18:00', 'HH:mm'),
       proposed_timezone: tz || detectBrowserTimezone(),
       admin_note: '',
     });
+    const baseDay = dayjs().add(1, 'day');
+    setProposedSlots([
+      { id: Date.now(), date: baseDay, start: dayjs('10:00', 'HH:mm'), end: dayjs('11:00', 'HH:mm') },
+    ]);
+  };
+
+  const addProposedSlot = () => {
+    if (proposedSlots.length >= 15) return;
+    setAvailError(null);
+    const last = proposedSlots[proposedSlots.length - 1];
+    const nextDate = last?.date ? last.date.add(1, 'day') : dayjs().add(1, 'day');
+    setProposedSlots(prev => [
+      ...prev,
+      {
+        id: Date.now() + prev.length + 1,
+        date: nextDate,
+        start: last?.start || dayjs('10:00', 'HH:mm'),
+        end: last?.end || dayjs('11:00', 'HH:mm'),
+      },
+    ]);
+  };
+
+  const duplicateProposedSlot = (index: number) => {
+    if (proposedSlots.length >= 15) return;
+    setAvailError(null);
+    const src = proposedSlots[index];
+    if (!src) return;
+    const canShift = src.start && src.end && src.end.hour() < 22;
+    const nextSlot: ProposedSlotDraft = {
+      id: Date.now() + proposedSlots.length + 7,
+      date: src.date,
+      start: canShift ? src.start!.add(1, 'hour') : src.start,
+      end: canShift ? src.end!.add(1, 'hour') : src.end,
+    };
+    setProposedSlots(prev => [
+      ...prev.slice(0, index + 1),
+      nextSlot,
+      ...prev.slice(index + 1),
+    ]);
+  };
+
+  const updateProposedSlot = (id: number, patch: Partial<ProposedSlotDraft>) => {
+    setAvailError(null);
+    setProposedSlots(prev => prev.map(s => (s.id === id ? { ...s, ...patch } : s)));
+  };
+
+  const removeProposedSlot = (id: number) => {
+    if (proposedSlots.length <= 1) return;
+    setAvailError(null);
+    setProposedSlots(prev => prev.filter(s => s.id !== id));
   };
 
   const submitAskAvailability = async (values: {
-    dateRange: [Dayjs, Dayjs];
-    timeStart: Dayjs;
-    timeEnd: Dayjs;
     proposed_timezone: string;
     admin_note?: string;
   }) => {
     if (!availFor) return;
+    if (proposedSlots.length === 0) {
+      setAvailError('Please add at least one date and time option.');
+      return;
+    }
+    const payloadSlots: AvailabilitySlot[] = [];
+    for (let i = 0; i < proposedSlots.length; i += 1) {
+      const s = proposedSlots[i];
+      if (!s.date || !s.start || !s.end) {
+        setAvailError(`Option #${i + 1} needs a date, start time, and end time.`);
+        return;
+      }
+      const start = s.start.format('HH:mm');
+      const end = s.end.format('HH:mm');
+      if (end <= start) {
+        setAvailError(`Option #${i + 1}: end time must be after start time.`);
+        return;
+      }
+      payloadSlots.push({ date: s.date.format('YYYY-MM-DD'), start, end });
+    }
+    setAvailError(null);
     setSendingAvail(true);
     try {
       const res = await apiCall(`/demo-requests/${availFor.id}/request-availability`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          proposed_start_date: values.dateRange[0].format('YYYY-MM-DD'),
-          proposed_end_date: values.dateRange[1].format('YYYY-MM-DD'),
-          proposed_time_start: values.timeStart.format('HH:mm'),
-          proposed_time_end: values.timeEnd.format('HH:mm'),
+          proposed_slots: payloadSlots,
           proposed_timezone: values.proposed_timezone,
           admin_note: values.admin_note?.trim() || undefined,
         }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
-        msg.error(d.message || 'Could not send availability request');
+        setAvailError(d.message || 'Could not send availability request');
         return;
       }
       msg.success(d.email_sent
@@ -355,7 +427,7 @@ const DemoRequests: React.FC = () => {
       setAvailFor(null);
       fetchList();
     } catch {
-      msg.error('Could not send availability request');
+      setAvailError('Could not send availability request');
     } finally {
       setSendingAvail(false);
     }
@@ -393,7 +465,7 @@ const DemoRequests: React.FC = () => {
       duration_minutes: 30,
       host_id: req.teacher_id || user?.id,
       teacher_id: req.teacher_id || undefined,
-      title: `French Demo — ${req.full_name}`,
+      title: `French Demo: ${req.full_name}`,
       require_approval: true,
       meeting_link: req.meeting_link || '',
       notes: req.notes || '',
@@ -435,7 +507,7 @@ const DemoRequests: React.FC = () => {
           msg.error(d.message || 'Could not schedule the demo meeting');
           return;
         }
-        msg.success(`Demo meeting scheduled & added to Admin calendar — ${scheduleFor.full_name} received the join link`);
+        msg.success(`Demo meeting scheduled and added to Admin calendar. ${scheduleFor.full_name} received the join link.`);
         setScheduleFor(null);
         fetchList();
         return;
@@ -457,7 +529,7 @@ const DemoRequests: React.FC = () => {
         return;
       }
       if (d.data) merge(d.data);
-      msg.success(`Demo scheduled — ${scheduleFor.full_name} and the teacher were emailed`);
+      msg.success(`Demo scheduled. ${scheduleFor.full_name} and the teacher were emailed.`);
       setScheduleFor(null);
       fetchList();
     } catch {
@@ -528,7 +600,7 @@ const DemoRequests: React.FC = () => {
   /* ═══════════ VIEW HELPERS ═══════════ */
   const fmtDate = (iso?: string | null, withTime = false) => (iso ? formatPlain(iso, tz, withTime
     ? { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }
-    : { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
+    : { month: 'short', day: 'numeric', year: 'numeric' }) : '-');
   const teacherName = (x: DemoRequest) => `${x.teacher_first_name || ''} ${x.teacher_last_name || ''}`.trim();
   const demoPassed = (x: DemoRequest) => !!x.demo_scheduled_at && new Date(x.demo_scheduled_at).getTime() < Date.now();
 
@@ -586,7 +658,7 @@ const DemoRequests: React.FC = () => {
   const LevelCell: React.FC<{ x: DemoRequest }> = ({ x }) => (
     <div className="dr-level">
       <span className="dr-level-path">
-        <b>{x.current_level || '—'}</b>
+        <b>{x.current_level || '-'}</b>
         {x.interested_level && x.interested_level !== x.current_level && <><RightOutlined /><b className="is-target">{x.interested_level}</b></>}
       </span>
       <em>{hasExperience(x.has_previous_experience) ? 'Has studied before' : 'First time learning'}</em>
@@ -643,7 +715,7 @@ const DemoRequests: React.FC = () => {
       render: (_, x) => (
         <div className="dr-contact">
           {x.phone ? <span><PhoneOutlined /> {x.phone}</span> : <span className="is-muted"><PhoneOutlined /> No phone</span>}
-          <span><EnvironmentOutlined /> {x.country || '—'}</span>
+          <span><EnvironmentOutlined /> {x.country || '-'}</span>
         </div>
       ),
     },
@@ -745,7 +817,7 @@ const DemoRequests: React.FC = () => {
                     onClick={() => setStatus(status === k ? '' : k)} aria-pressed={status === k}>
                     <span><i />{STATUS[k].label}</span>
                     <strong>{v}</strong>
-                    <em>{stats.total ? `${Math.round((v / stats.total) * 100)}%` : '—'}</em>
+                    <em>{stats.total ? `${Math.round((v / stats.total) * 100)}%` : '-'}</em>
                   </button>
                 </React.Fragment>
               );
@@ -870,7 +942,7 @@ const DemoRequests: React.FC = () => {
                   {PIPELINE.map((k, i) => (
                     <li key={k} className={i < stepIndex ? 'is-done' : i === stepIndex ? 'is-current' : ''}>
                       <span className="dr-step-dot">{i < stepIndex ? <CheckOutlined /> : i + 1}</span>
-                      <span className="dr-step-text"><strong>{STATUS[k].label}</strong><em>{stepDates[k] && i <= stepIndex ? fmtDate(stepDates[k]) : '—'}</em></span>
+                      <span className="dr-step-text"><strong>{STATUS[k].label}</strong><em>{stepDates[k] && i <= stepIndex ? fmtDate(stepDates[k]) : '-'}</em></span>
                     </li>
                   ))}
                 </ol>
@@ -937,7 +1009,7 @@ const DemoRequests: React.FC = () => {
                         return (
                           <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, background: '#ffffff', padding: '6px 10px', borderRadius: 8, border: '1px solid #d1fae5' }}>
                             <div style={{ fontSize: 12.5 }}>
-                              <strong>{sl.date}</strong> · {sl.start} – {sl.end} ({d.latest_availability?.submitted_timezone})
+                              <strong>{dayjs(sl.date).format('ddd, MMM D, YYYY')}</strong> · {sl.start} - {sl.end} ({d.latest_availability?.submitted_timezone})
                               {localDt && (
                                 <div style={{ fontSize: 11.5, color: '#64748b' }}>
                                   Your time: {localDt.format('ddd, MMM D · HH:mm')} ({timezoneLabel(tz)})
@@ -961,12 +1033,26 @@ const DemoRequests: React.FC = () => {
                   </div>
                 ) : (
                   <div style={{ padding: 12, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 12.5 }}>
-                    <Tag color={d.latest_availability.status === 'pending' ? 'geekblue' : 'orange'}>
-                      {d.latest_availability.status === 'pending' ? 'Waiting for prospect response' : d.latest_availability.status}
-                    </Tag>
-                    <div style={{ marginTop: 6, color: '#334155' }}>
-                      Proposed: <strong>{d.latest_availability.proposed_start_date} → {d.latest_availability.proposed_end_date}</strong> · {d.latest_availability.proposed_time_start}–{d.latest_availability.proposed_time_end} ({d.latest_availability.proposed_timezone})
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <Tag color={d.latest_availability.status === 'pending' ? 'geekblue' : 'orange'} style={{ margin: 0 }}>
+                        {d.latest_availability.status === 'pending' ? 'Waiting for prospect response' : d.latest_availability.status}
+                      </Tag>
+                      <span style={{ fontSize: 11.5, color: '#64748b' }}>{d.latest_availability.proposed_timezone}</span>
                     </div>
+                    {d.latest_availability.proposed_slots && d.latest_availability.proposed_slots.length > 0 ? (
+                      <div className="dr-proposed-list">
+                        {d.latest_availability.proposed_slots.map((sl, idx) => (
+                          <div key={idx} className="dr-proposed-item">
+                            <strong>{dayjs(sl.date).format('ddd, MMM D, YYYY')}</strong>
+                            <span>{sl.start} - {sl.end}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 6, color: '#334155' }}>
+                        Proposed: <strong>{d.latest_availability.proposed_start_date} to {d.latest_availability.proposed_end_date}</strong> · {d.latest_availability.proposed_time_start} - {d.latest_availability.proposed_time_end}
+                      </div>
+                    )}
                   </div>
                 )}
               </section>
@@ -975,20 +1061,20 @@ const DemoRequests: React.FC = () => {
                 <h4>Contact</h4>
                 <dl className="dr-facts">
                   <div><dt>Email</dt><dd>{d.email}</dd></div>
-                  <div><dt>WhatsApp</dt><dd>{d.phone || '—'}</dd></div>
-                  <div><dt>Country</dt><dd>{d.country || '—'}</dd></div>
-                  <div><dt>Timezone</dt><dd>{d.timezone ? <>{d.timezone.replace(/_/g, ' ')}{dTz && <small> · now {inTz(new Date(), dTz, { hour: 'numeric', minute: '2-digit', hour12: true })}</small>}</> : '—'}</dd></div>
+                  <div><dt>WhatsApp</dt><dd>{d.phone || '-'}</dd></div>
+                  <div><dt>Country</dt><dd>{d.country || '-'}</dd></div>
+                  <div><dt>Timezone</dt><dd>{d.timezone ? <>{d.timezone.replace(/_/g, ' ')}{dTz && <small> · now {inTz(new Date(), dTz, { hour: 'numeric', minute: '2-digit', hour12: true })}</small>}</> : '-'}</dd></div>
                 </dl>
               </section>
 
               {interestOf(d) === 'exam' && (
                 <section className="dr-sec dr-exam">
                   <h4><TrophyOutlined /> Exam preparation only</h4>
-                  <p className="dr-exam-note">No classes asked for — this person wants mock exams and corrections.</p>
+                  <p className="dr-exam-note">No classes asked for: this person wants mock exams and corrections.</p>
                   <dl className="dr-facts">
-                    <div><dt>Exam</dt><dd>{d.target_exam ? EXAM_LABELS[d.target_exam] || d.target_exam : '—'}</dd></div>
+                    <div><dt>Exam</dt><dd>{d.target_exam ? EXAM_LABELS[d.target_exam] || d.target_exam : '-'}</dd></div>
                     <div><dt>Exam date</dt><dd>{d.exam_date ? `${examDay(d.exam_date)}${daysTo(d.exam_date)}` : 'Not booked yet'}</dd></div>
-                    <div><dt>Score needed</dt><dd>{d.target_score || '—'}</dd></div>
+                    <div><dt>Score needed</dt><dd>{d.target_score || '-'}</dd></div>
                     <div><dt>Sat it before</dt><dd>{hasExperience(d.has_previous_experience) ? 'Yes' : 'Not yet'}</dd></div>
                   </dl>
                   {d.skills && (
@@ -1005,11 +1091,11 @@ const DemoRequests: React.FC = () => {
                 <h4>Learning profile</h4>
                 <dl className="dr-facts">
                   <div><dt>Looking for</dt><dd>{INTEREST[interestOf(d)].label}</dd></div>
-                  <div><dt>Level</dt><dd>{d.current_level || '—'}{d.interested_level && ` → wants ${d.interested_level}`}</dd></div>
+                  <div><dt>Level</dt><dd>{d.current_level || '-'}{d.interested_level && ` → wants ${d.interested_level}`}</dd></div>
                   <div><dt>Experience</dt><dd>{hasExperience(d.has_previous_experience) ? 'Has studied French before' : 'First time learning'}</dd></div>
                   {d.previous_study_method && <div><dt>Studied with</dt><dd>{d.previous_study_method}</dd></div>}
-                  <div><dt>Wants to start</dt><dd>{d.expected_start_time || '—'}</dd></div>
-                  {interestOf(d) === 'classes' && <div><dt>Availability</dt><dd>{d.preferred_schedule || '—'}</dd></div>}
+                  <div><dt>Wants to start</dt><dd>{d.expected_start_time || '-'}</dd></div>
+                  {interestOf(d) === 'classes' && <div><dt>Availability</dt><dd>{d.preferred_schedule || '-'}</dd></div>}
                 </dl>
               </section>
 
@@ -1039,7 +1125,7 @@ const DemoRequests: React.FC = () => {
           open={!!availFor}
           onCancel={() => !sendingAvail && setAvailFor(null)}
           footer={null}
-          width={520}
+          width={600}
           centered
           className="dr-modal"
           maskClosable={!sendingAvail}
@@ -1054,28 +1140,96 @@ const DemoRequests: React.FC = () => {
               </div>
             </header>
             <Form form={availForm} layout="vertical" requiredMark={false} onFinish={submitAskAvailability} className="dr-md-body">
-              <Form.Item name="dateRange" label="Proposed date range" rules={[{ required: true, message: 'Choose start and end dates' }]}>
-                <DatePicker.RangePicker style={{ width: '100%' }} disabledDate={dt => dt.isBefore(dayjs().startOf('day'))} />
-              </Form.Item>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <Form.Item name="timeStart" label="Daily from" rules={[{ required: true, message: 'Start time required' }]}>
-                  <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="timeEnd" label="Daily until" rules={[{ required: true, message: 'End time required' }]}>
-                  <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
-                </Form.Item>
-              </div>
-              <Form.Item name="proposed_timezone" label="Timezone" rules={[{ required: true, message: 'Select timezone' }]}>
+              <Form.Item
+                name="proposed_timezone"
+                label="Your timezone for these options"
+                rules={[{ required: true, message: 'Select timezone' }]}
+                extra={availFor?.timezone ? `Prospect timezone: ${availFor.timezone.replace(/_/g, ' ')} (converted automatically on their booking page)` : undefined}
+              >
                 <Select
                   showSearch
                   optionFilterProp="label"
                   options={COMMON_TIMEZONES.map(t => ({ value: t.value, label: t.label }))}
                 />
               </Form.Item>
-              <Form.Item name="admin_note" label="Note for prospect (optional)">
-                <Input.TextArea rows={2} maxLength={800} placeholder="e.g. Let us know which 30-minute slot works best for your level assessment." />
+
+              <div className="dr-slots-head">
+                <span className="dr-slots-label">
+                  Proposed date &amp; time options
+                  <span className="dr-slots-count">{proposedSlots.length}/15</span>
+                </span>
+                {proposedSlots.length < 15 && (
+                  <Button type="link" size="small" icon={<PlusOutlined />} onClick={addProposedSlot} style={{ paddingInline: 0 }}>
+                    Add option
+                  </Button>
+                )}
+              </div>
+
+              <div className="dr-slots-list">
+                {proposedSlots.map((slot, idx) => (
+                  <div key={slot.id} className="dr-slot-row">
+                    <DatePicker
+                      value={slot.date}
+                      format="ddd, MMM D, YYYY"
+                      placeholder="Select date"
+                      allowClear={false}
+                      disabledDate={dt => dt.isBefore(dayjs().startOf('day'))}
+                      onChange={d => updateProposedSlot(slot.id, { date: d })}
+                      style={{ width: '100%' }}
+                    />
+                    <TimePicker
+                      value={slot.start}
+                      format="HH:mm"
+                      minuteStep={15}
+                      placeholder="From"
+                      allowClear={false}
+                      onChange={t => updateProposedSlot(slot.id, { start: t })}
+                      style={{ width: '100%' }}
+                    />
+                    <TimePicker
+                      value={slot.end}
+                      format="HH:mm"
+                      minuteStep={15}
+                      placeholder="To"
+                      allowClear={false}
+                      onChange={t => updateProposedSlot(slot.id, { end: t })}
+                      style={{ width: '100%' }}
+                    />
+                    <div className="dr-slot-actions">
+                      <Tooltip title="Add another time on this day">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<CopyOutlined />}
+                          disabled={proposedSlots.length >= 15}
+                          onClick={() => duplicateProposedSlot(idx)}
+                          aria-label={`Duplicate option ${idx + 1}`}
+                        />
+                      </Tooltip>
+                      <Tooltip title="Remove option">
+                        <Button
+                          danger
+                          type="text"
+                          size="small"
+                          icon={<DeleteOutlined />}
+                          disabled={proposedSlots.length <= 1}
+                          onClick={() => removeProposedSlot(slot.id)}
+                          aria-label={`Remove option ${idx + 1}`}
+                        />
+                      </Tooltip>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {availError && (
+                <div className="dr-slot-error" role="alert">{availError}</div>
+              )}
+
+              <Form.Item name="admin_note" label="Note for prospect (optional)" style={{ marginBottom: 10 }}>
+                <Input.TextArea rows={2} maxLength={800} placeholder="e.g. Pick any 30-minute window that suits your schedule." />
               </Form.Item>
-              <p className="dr-md-info"><MailOutlined /> {availFor?.full_name} will receive an email with a single-use link to pick their available time.</p>
+              <p className="dr-md-info"><MailOutlined /> {availFor?.full_name} will receive these exact options by email with a single-use link.</p>
             </Form>
             <footer className="dr-md-foot">
               <Button onClick={() => setAvailFor(null)} disabled={sendingAvail}>Cancel</Button>
@@ -1094,12 +1248,12 @@ const DemoRequests: React.FC = () => {
               <span className="dr-md-ic"><CalendarOutlined /></span>
               <div>
                 <h3>{scheduleFor?.demo_scheduled_at ? 'Reschedule demo' : 'Schedule a demo'}</h3>
-                <p>{scheduleFor?.full_name} · {scheduleFor?.current_level || '—'}{scheduleFor?.country ? ` · ${scheduleFor.country}` : ''}</p>
+                <p>{scheduleFor?.full_name} · {scheduleFor?.current_level || '-'}{scheduleFor?.country ? ` · ${scheduleFor.country}` : ''}</p>
               </div>
             </header>
             {scheduleFor?.latest_availability?.status === 'submitted' && (scheduleFor.latest_availability.submitted_slots?.length || 0) > 0 && (
               <div className="dr-md-pref" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
-                <span><strong>Submitted availability</strong> ({scheduleFor.latest_availability.submitted_timezone}) — click a slot to pre-fill:</span>
+                <span><strong>Submitted availability</strong> ({scheduleFor.latest_availability.submitted_timezone}). Click a slot to pre-fill:</span>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {scheduleFor.latest_availability.submitted_slots!.map((sl, i) => (
                     <Button
@@ -1152,8 +1306,8 @@ const DemoRequests: React.FC = () => {
                   </Form.Item>
                   <Form.Item name="require_approval" label="Guest joining policy">
                     <Radio.Group style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <Radio value={true}><strong>Require host approval</strong> — prospect waits in lobby</Radio>
-                      <Radio value={false}><strong>Direct entry</strong> — prospect joins immediately once live</Radio>
+                      <Radio value={true}><strong>Require host approval:</strong> prospect waits in lobby</Radio>
+                      <Radio value={false}><strong>Direct entry:</strong> prospect joins immediately once live</Radio>
                     </Radio.Group>
                   </Form.Item>
                 </>

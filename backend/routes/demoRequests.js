@@ -241,6 +241,10 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
         const { status, country, level, interest, page = 1, limit = 10, search, start_date, end_date } = req.query;
         // The interest columns exist only once migration 023 has run.
         const withInterest = await hasColumn(req.db, 'demo_requests', 'interest');
+        const withProposedSlots = await hasColumn(req.db, 'demo_availability_requests', 'proposed_slots');
+        const proposedSlotsExpr = withProposedSlots
+            ? `COALESCE(dar.proposed_slots, CASE WHEN jsonb_typeof(dar.proposed_days) = 'object' AND dar.proposed_days ? 'slots' THEN dar.proposed_days->'slots' ELSE NULL END)`
+            : `CASE WHEN jsonb_typeof(dar.proposed_days) = 'object' AND dar.proposed_days ? 'slots' THEN dar.proposed_days->'slots' ELSE NULL END`;
         const interestColumns = withInterest
             ? ', dr.interest, dr.target_exam, dr.exam_date::text AS exam_date, dr.target_score, dr.skills'
             : '';
@@ -308,6 +312,7 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
                     'proposed_time_start', dar.proposed_time_start,
                     'proposed_time_end', dar.proposed_time_end,
                     'proposed_days', dar.proposed_days,
+                    'proposed_slots', ${proposedSlotsExpr},
                     'admin_note', dar.admin_note,
                     'expires_at', dar.expires_at,
                     'submitted_at', dar.submitted_at,
@@ -718,11 +723,37 @@ router.patch('/:id/schedule', authenticateToken, adminOnlyMw, [
     }
 });
 
+const AVAIL_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const AVAIL_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function sanitizeProposedSlots(rawSlots) {
+    if (!Array.isArray(rawSlots) || rawSlots.length === 0 || rawSlots.length > 15) {
+        return null;
+    }
+    const seen = new Set();
+    const cleaned = [];
+    for (const item of rawSlots) {
+        if (!item || typeof item !== 'object') return null;
+        const date = String(item.date || '').trim();
+        const start = String(item.start || '').trim();
+        const end = String(item.end || '').trim();
+        if (!AVAIL_DATE_RE.test(date) || !AVAIL_TIME_RE.test(start) || !AVAIL_TIME_RE.test(end)) return null;
+        if (end <= start) return null;
+        const key = `${date}|${start}|${end}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        cleaned.push({ date, start, end });
+    }
+    cleaned.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+    return cleaned.length > 0 ? cleaned : null;
+}
+
 // Ask prospect for their availability via a single-use expiring link
 router.post('/:id/request-availability', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const { id } = req.params;
         const {
+            proposed_slots,
             proposed_start_date,
             proposed_end_date,
             proposed_time_start,
@@ -733,24 +764,48 @@ router.post('/:id/request-availability', authenticateToken, adminOnlyMw, async (
             expires_in_days,
         } = req.body || {};
 
-        const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-        const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-        if (!DATE_RE.test(String(proposed_start_date || '')) || !DATE_RE.test(String(proposed_end_date || ''))) {
-            return res.status(400).json({ success: false, message: 'Valid start and end dates (YYYY-MM-DD) are required' });
+        let proposedSlots = null;
+        let startDate = String(proposed_start_date || '').trim();
+        let endDate = String(proposed_end_date || '').trim();
+        let timeStart = String(proposed_time_start || '').trim();
+        let timeEnd = String(proposed_time_end || '').trim();
+
+        if (proposed_slots !== undefined) {
+            proposedSlots = sanitizeProposedSlots(proposed_slots);
+            if (!proposedSlots) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Please provide 1 to 15 valid date and time options (end time must be after start time).',
+                });
+            }
+            const dates = proposedSlots.map(s => s.date);
+            startDate = dates[0];
+            endDate = dates[dates.length - 1];
+            const spanDays = (Date.parse(endDate) - Date.parse(startDate)) / 86400000;
+            if (spanDays > 90) {
+                return res.status(400).json({ success: false, message: 'Proposed dates cannot span more than 90 days.' });
+            }
+            timeStart = proposedSlots.reduce((min, s) => (s.start < min ? s.start : min), proposedSlots[0].start);
+            timeEnd = proposedSlots.reduce((max, s) => (s.end > max ? s.end : max), proposedSlots[0].end);
+        } else {
+            if (!AVAIL_DATE_RE.test(startDate) || !AVAIL_DATE_RE.test(endDate)) {
+                return res.status(400).json({ success: false, message: 'Valid start and end dates (YYYY-MM-DD) are required' });
+            }
+            if (endDate < startDate) {
+                return res.status(400).json({ success: false, message: 'End date must be on or after start date' });
+            }
+            const daySpan = (Date.parse(endDate) - Date.parse(startDate)) / 86400000;
+            if (daySpan > 60) {
+                return res.status(400).json({ success: false, message: 'Date range cannot exceed 60 days' });
+            }
+            if (!AVAIL_TIME_RE.test(timeStart) || !AVAIL_TIME_RE.test(timeEnd)) {
+                return res.status(400).json({ success: false, message: 'Valid start and end times (HH:MM) are required' });
+            }
+            if (timeEnd <= timeStart) {
+                return res.status(400).json({ success: false, message: 'End time must be after start time' });
+            }
         }
-        if (proposed_end_date < proposed_start_date) {
-            return res.status(400).json({ success: false, message: 'End date must be on or after start date' });
-        }
-        const daySpan = (Date.parse(proposed_end_date) - Date.parse(proposed_start_date)) / 86400000;
-        if (daySpan > 60) {
-            return res.status(400).json({ success: false, message: 'Date range cannot exceed 60 days' });
-        }
-        if (!TIME_RE.test(String(proposed_time_start || '')) || !TIME_RE.test(String(proposed_time_end || ''))) {
-            return res.status(400).json({ success: false, message: 'Valid start and end times (HH:MM) are required' });
-        }
-        if (proposed_time_end <= proposed_time_start) {
-            return res.status(400).json({ success: false, message: 'End time must be after start time' });
-        }
+
         const tz = String(proposed_timezone || req.user.timezone || 'UTC').trim().slice(0, 80);
         try {
             new Intl.DateTimeFormat('en-US', { timeZone: tz }).format();
@@ -780,32 +835,60 @@ router.post('/:id/request-availability', authenticateToken, adminOnlyMw, async (
 
         const rawToken = crypto.randomBytes(32).toString('base64url');
         const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+        const withProposedSlots = await hasColumn(req.db, 'demo_availability_requests', 'proposed_slots');
 
-        const inserted = await req.db.run(
-            `INSERT INTO demo_availability_requests (
-                demo_request_id, token_hash, created_by, proposed_timezone,
-                proposed_start_date, proposed_end_date, proposed_time_start, proposed_time_end,
-                proposed_days, admin_note, status, expires_at
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, 'pending', $11)
-             RETURNING id, demo_request_id, created_by, proposed_timezone,
-                       proposed_start_date::text AS proposed_start_date,
-                       proposed_end_date::text AS proposed_end_date,
-                       proposed_time_start, proposed_time_end, proposed_days, admin_note,
-                       status, expires_at, created_at`,
-            [
-                demo.id,
-                tokenHash,
-                req.user.id,
-                tz,
-                proposed_start_date,
-                proposed_end_date,
-                proposed_time_start,
-                proposed_time_end,
-                days ? JSON.stringify(days) : null,
-                cleanNote,
-                expiresAt,
-            ]
-        );
+        const inserted = withProposedSlots
+            ? await req.db.run(
+                `INSERT INTO demo_availability_requests (
+                    demo_request_id, token_hash, created_by, proposed_timezone,
+                    proposed_start_date, proposed_end_date, proposed_time_start, proposed_time_end,
+                    proposed_days, proposed_slots, admin_note, status, expires_at
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11, 'pending', $12)
+                 RETURNING id, demo_request_id, created_by, proposed_timezone,
+                           proposed_start_date::text AS proposed_start_date,
+                           proposed_end_date::text AS proposed_end_date,
+                           proposed_time_start, proposed_time_end, proposed_days, proposed_slots, admin_note,
+                           status, expires_at, created_at`,
+                [
+                    demo.id,
+                    tokenHash,
+                    req.user.id,
+                    tz,
+                    startDate,
+                    endDate,
+                    timeStart,
+                    timeEnd,
+                    days ? JSON.stringify(days) : null,
+                    proposedSlots ? JSON.stringify(proposedSlots) : null,
+                    cleanNote,
+                    expiresAt,
+                ]
+            )
+            : await req.db.run(
+                `INSERT INTO demo_availability_requests (
+                    demo_request_id, token_hash, created_by, proposed_timezone,
+                    proposed_start_date, proposed_end_date, proposed_time_start, proposed_time_end,
+                    proposed_days, admin_note, status, expires_at
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, 'pending', $11)
+                 RETURNING id, demo_request_id, created_by, proposed_timezone,
+                           proposed_start_date::text AS proposed_start_date,
+                           proposed_end_date::text AS proposed_end_date,
+                           proposed_time_start, proposed_time_end, proposed_days, admin_note,
+                           status, expires_at, created_at`,
+                [
+                    demo.id,
+                    tokenHash,
+                    req.user.id,
+                    tz,
+                    startDate,
+                    endDate,
+                    timeStart,
+                    timeEnd,
+                    proposedSlots ? JSON.stringify({ version: 2, slots: proposedSlots }) : (days ? JSON.stringify(days) : null),
+                    cleanNote,
+                    expiresAt,
+                ]
+            );
 
         if (demo.status === 'new') {
             await req.db.run(
@@ -818,17 +901,16 @@ router.post('/:id/request-availability', authenticateToken, adminOnlyMw, async (
         }
 
         const availabilityUrl = `${access.frontendBase()}/demo-availability/${rawToken}`;
-        const adminName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Our coordinator';
         let emailSent = true;
         try {
             await sendDemoAvailabilityRequest({
                 to: demo.email,
                 recipientName: demo.full_name,
-                adminName,
-                proposedStartDate: proposed_start_date,
-                proposedEndDate: proposed_end_date,
-                proposedTimeStart: proposed_time_start,
-                proposedTimeEnd: proposed_time_end,
+                proposedSlots,
+                proposedStartDate: startDate,
+                proposedEndDate: endDate,
+                proposedTimeStart: timeStart,
+                proposedTimeEnd: timeEnd,
                 proposedTimezone: tz,
                 adminNote: cleanNote,
                 availabilityUrl,
@@ -839,10 +921,15 @@ router.post('/:id/request-availability', authenticateToken, adminOnlyMw, async (
             console.error('❌ Failed to send availability request email:', emailErr.message);
         }
 
+        const savedRow = inserted.rows[0];
+        if (!savedRow.proposed_slots && proposedSlots) {
+            savedRow.proposed_slots = proposedSlots;
+        }
+
         return res.status(201).json({
             success: true,
             email_sent: emailSent,
-            availability_request: inserted.rows[0],
+            availability_request: savedRow,
         });
     } catch (error) {
         console.error('POST /demo-requests/:id/request-availability error:', error);
@@ -892,7 +979,7 @@ router.post('/:id/schedule-meeting', authenticateToken, adminOnlyMw, async (req,
 
         const cleanTitle = (typeof title === 'string' && title.trim()
             ? title.trim()
-            : `French Demo — ${demo.full_name}`).slice(0, 300);
+            : `French Demo: ${demo.full_name}`).slice(0, 300);
         const cleanNotes = typeof notes === 'string' && notes.trim() ? notes.trim().slice(0, 2000) : null;
         const tz = (typeof host_timezone === 'string' && host_timezone.trim())
             ? host_timezone.trim().slice(0, 80)
@@ -1032,6 +1119,10 @@ router.post('/:id/schedule-meeting', authenticateToken, adminOnlyMw, async (req,
 router.get('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const { id } = req.params;
+        const withProposedSlots = await hasColumn(req.db, 'demo_availability_requests', 'proposed_slots');
+        const proposedSlotsExpr = withProposedSlots
+            ? `COALESCE(dar.proposed_slots, CASE WHEN jsonb_typeof(dar.proposed_days) = 'object' AND dar.proposed_days ? 'slots' THEN dar.proposed_days->'slots' ELSE NULL END)`
+            : `CASE WHEN jsonb_typeof(dar.proposed_days) = 'object' AND dar.proposed_days ? 'slots' THEN dar.proposed_days->'slots' ELSE NULL END`;
 
         const result = await req.db.get(`
             SELECT 
@@ -1051,6 +1142,7 @@ router.get('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
                     'proposed_time_start', dar.proposed_time_start,
                     'proposed_time_end', dar.proposed_time_end,
                     'proposed_days', dar.proposed_days,
+                    'proposed_slots', ${proposedSlotsExpr},
                     'admin_note', dar.admin_note,
                     'expires_at', dar.expires_at,
                     'submitted_at', dar.submitted_at,

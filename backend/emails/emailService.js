@@ -198,11 +198,11 @@ async function sendDemoScheduleNotificationToTeacher({
 }
 
 async function sendDemoAvailabilityRequest({
-    to, recipientName, adminName, proposedStartDate, proposedEndDate,
+    to, recipientName, adminName, proposedSlots, proposedStartDate, proposedEndDate,
     proposedTimeStart, proposedTimeEnd, proposedTimezone, adminNote, availabilityUrl, expiresAt, supportEmail,
 }) {
     const { subject, html, text } = buildDemoAvailabilityRequestTemplate({
-        recipientName, adminName, proposedStartDate, proposedEndDate,
+        recipientName, adminName, proposedSlots, proposedStartDate, proposedEndDate,
         proposedTimeStart, proposedTimeEnd, proposedTimezone, adminNote, availabilityUrl, expiresAt, supportEmail,
     });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });

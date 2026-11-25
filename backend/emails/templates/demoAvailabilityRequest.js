@@ -1,12 +1,24 @@
-const { baseHtml, detailCard, ctaButton, infoStrip, escapeHtml, formatRecipientTime, getSupportEmail } = require('./base');
+const {
+    baseHtml,
+    detailCard,
+    slotListCard,
+    formatSlotHuman,
+    infoStrip,
+    ctaButton,
+    escapeHtml,
+    formatRecipientTime,
+    getSupportEmail,
+    BRAND,
+} = require('./base');
 
 /**
- * Email sent by an admin asking a demo prospect for their availability
- * via a cryptographically signed single-use expiring link.
+ * Email sent when inviting a demo requester to choose from proposed availability options
+ * (or suggest another time) via a single-use link.
+ * Intentionally avoids exposing any administrator's personal name.
  */
 function buildDemoAvailabilityRequestTemplate({
     recipientName,
-    adminName,
+    proposedSlots,
     proposedStartDate,
     proposedEndDate,
     proposedTimeStart,
@@ -17,82 +29,108 @@ function buildDemoAvailabilityRequestTemplate({
     expiresAt,
     supportEmail,
 }) {
-    const safeName = recipientName || 'there';
+    const firstName = String(recipientName || '').trim().split(/\s+/)[0] || 'there';
     const tz = proposedTimezone || 'UTC';
     const support = supportEmail || getSupportEmail();
 
-    const subject = 'Share your availability for your French demo class';
-    const preheader = adminName
-        ? `${adminName} asked for your available times to schedule your French demo.`
-        : 'Pick a time window that works best for your free French demo class.';
+    const slots = Array.isArray(proposedSlots) && proposedSlots.length > 0 ? proposedSlots : null;
+
+    const subject = 'Choose a time for your French demo session';
+    const preheader = 'Select an available time option so an instructor can confirm your French demo session.';
 
     const dateRange = proposedStartDate && proposedEndDate
         ? (proposedStartDate === proposedEndDate
             ? proposedStartDate
-            : `${proposedStartDate} → ${proposedEndDate}`)
+            : `${proposedStartDate} to ${proposedEndDate}`)
         : null;
 
     const timeRange = proposedTimeStart && proposedTimeEnd
-        ? `${proposedTimeStart} – ${proposedTimeEnd} (${tz})`
+        ? `${proposedTimeStart} - ${proposedTimeEnd} (${tz})`
         : null;
 
     const expiresText = expiresAt ? formatRecipientTime(expiresAt, tz) : null;
 
-    const detailRows = [
-        { label: 'Coordinator', value: adminName ? escapeHtml(adminName) : null },
-        { label: 'Proposed dates', value: dateRange ? escapeHtml(dateRange) : null },
-        { label: 'Suggested daily window', value: timeRange ? escapeHtml(timeRange) : null },
-        { label: 'Link expires', value: expiresText ? escapeHtml(expiresText) : null },
-    ];
+    const scheduleSection = slots
+        ? slotListCard({
+            title: 'Available time options',
+            subtitle: `Shown in ${tz}. Times convert to your local timezone on the selection page.`,
+            slots,
+        })
+        : detailCard({
+            title: 'Suggested window',
+            rows: [
+                { label: 'Dates', value: dateRange ? escapeHtml(dateRange) : null },
+                { label: 'Hours', value: timeRange ? escapeHtml(timeRange) : null },
+            ],
+        });
 
-    const noteCard = adminNote
-        ? detailCard({ title: 'Message from our team', rows: [{ label: 'Note', value: escapeHtml(adminNote) }] })
+    const noteBlock = adminNote
+        ? infoStrip({
+            tone: 'muted',
+            text: `<strong>Note from our team:</strong> ${escapeHtml(adminNote)}`,
+        })
         : '';
 
     const bodyHtml = `
-      <p style="margin:0 0 14px; font-size:15px; color:#0f172a;">Hi <strong>${escapeHtml(safeName)}</strong>,</p>
-      <p style="margin:0 0 22px; font-size:14.5px; color:#475569; line-height:1.65;">
-        Thank you for requesting a live French demo class! Please share the dates and times that suit you best using the button below so we can finalize your meeting and send your join link.
+      <p style="margin: 0 0 14px; font-size: 15px; color: ${BRAND.text}; line-height: 1.55;">
+        Hello ${escapeHtml(firstName)},
+      </p>
+      <p style="margin: 0 0 22px; font-size: 14.5px; color: ${BRAND.textBody}; line-height: 1.65;">
+        Thank you for requesting a live French demo class with us. Please choose one or more times below that fit your schedule. Once you submit, an instructor will contact you with your confirmed meeting link.
       </p>
 
-      ${detailCard({ title: 'Suggested availability window', rows: detailRows })}
+      ${scheduleSection}
 
-      ${noteCard}
+      ${noteBlock}
 
-      ${ctaButton({ label: 'Share my availability', href: escapeHtml(availabilityUrl) })}
+      ${ctaButton({ label: 'Select my preferred time', href: escapeHtml(availabilityUrl) })}
 
-      ${infoStrip({
-          tone: 'warn',
-          text: `<strong>One-time link:</strong> For your privacy and scheduling accuracy, this link expires automatically as soon as you submit your availability. If you need to make a change afterwards, please write to <a href="mailto:${escapeHtml(support)}" style="color:#9a3412;font-weight:600;">${escapeHtml(support)}</a>.`,
-      })}
-
-      <p style="margin: 12px 0 0; font-size: 12.5px; color: #64748b; line-height: 1.6; word-break: break-all;">
-        If the button does not work, open this link in your browser:<br />
-        <a href="${escapeHtml(availabilityUrl)}" style="color: #4338ca;">${escapeHtml(availabilityUrl)}</a>
+      <p style="margin: 0 0 12px; font-size: 13px; color: ${BRAND.textMuted}; line-height: 1.6;">
+        If none of these options match your schedule, you can suggest a different date and time directly on the next page.
+      </p>
+      <p style="margin: 0 0 14px; font-size: 12.5px; color: ${BRAND.textMuted}; line-height: 1.6;">
+        This link can be submitted once${expiresText ? ` (valid until ${escapeHtml(expiresText)})` : ''}. If you need to make changes afterwards, reply to this email or contact <a href="mailto:${escapeHtml(support)}" style="color: ${BRAND.primary}; text-decoration: none; font-weight: 600;">${escapeHtml(support)}</a>.
+      </p>
+      <p style="margin: 0; font-size: 12px; color: ${BRAND.textLight}; line-height: 1.55; word-break: break-all;">
+        Direct link: <a href="${escapeHtml(availabilityUrl)}" style="color: ${BRAND.primary};">${escapeHtml(availabilityUrl)}</a>
       </p>
     `;
 
     const html = baseHtml({
         subject,
         preheader,
-        eyebrow: 'DEMO SCHEDULING',
-        title: 'Choose your available times',
+        eyebrow: 'DEMO SESSION',
+        title: 'Choose your demo session time',
         bodyHtml,
     });
 
+    const slotTextLines = slots
+        ? [
+            `Available time options (${tz}):`,
+            ...slots.map((s) => {
+                const { dateLabel, timeLabel } = formatSlotHuman(s);
+                return `- ${dateLabel}, ${timeLabel}`;
+            }),
+        ]
+        : [
+            dateRange ? `Suggested dates: ${dateRange}` : null,
+            timeRange ? `Suggested hours: ${timeRange}` : null,
+        ].filter(Boolean);
+
     const textLines = [
-        `Hi ${safeName},`,
+        `Hello ${firstName},`,
         '',
-        'Thank you for requesting a live French demo class! Please share your preferred dates and times using the link below:',
+        'Thank you for requesting a live French demo class with us. Please choose one or more times below so an instructor can contact you with your confirmed meeting link.',
         '',
-        availabilityUrl,
+        ...slotTextLines,
+        adminNote ? '' : null,
+        adminNote ? `Note from our team: ${adminNote}` : null,
         '',
-        dateRange ? `Proposed dates: ${dateRange}` : null,
-        timeRange ? `Suggested window: ${timeRange}` : null,
-        adminNote ? `Note: ${adminNote}` : null,
+        `Select your preferred time: ${availabilityUrl}`,
         '',
-        `Note: This link is single-use and expires once you submit your availability. To reschedule afterwards, email ${support}.`,
-    ].filter(Boolean);
+        'If none of these options match your schedule, you can suggest another time directly on the page.',
+        `This is a one-time link. Need to change something afterwards? Email ${support}.`,
+    ].filter(line => line !== null);
 
     return { subject, html, text: textLines.join('\n') };
 }

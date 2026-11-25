@@ -17,7 +17,7 @@ import PreJoin, { loadMediaChoices } from './PreJoin';
 import type { MediaChoices, PreJoinStatus } from './PreJoin';
 import { MeetingRoomUI, StatusScreen } from './MeetingRoom';
 import type { MeetingData } from './MeetingRoom';
-import { passcodeFromLink } from './meetingUi';
+import { cleanMeetingTitle, passcodeFromLink } from './meetingUi';
 import './MeetingShell.css';
 import './MeetingRoom.css';
 
@@ -102,7 +102,7 @@ const PublicMeetingRoom: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (meta?.title) document.title = `${meta.title} — Meeting`;
+    if (meta?.title) document.title = `${cleanMeetingTitle(meta.title)} | Learn French with Natives`;
   }, [meta?.title]);
 
   const loadMeta = useCallback(async () => {
@@ -384,7 +384,36 @@ const PublicMeetingRoom: React.FC = () => {
 
   const back = () => navigate('/meeting');
   const shell = (node: React.ReactNode) => (
-    <ConfigProvider theme={{ token: { colorPrimary: '#047857', fontSize: 13, borderRadius: 8 } }}>{node}</ConfigProvider>
+    <ConfigProvider
+      theme={{
+        token: {
+          colorPrimary: '#183961',
+          fontSize: 13.5,
+          borderRadius: 10,
+          fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        },
+      }}
+    >
+      <div className="pj-public-shell">
+        <div className="pj-tricolor" aria-hidden />
+        <header className="pj-brandbar">
+          <div className="pj-brandbar-inner">
+            <div className="pj-brand">
+              <img src="/assets/Logo.png" alt="" width={36} height={36} />
+              <span>
+                <strong>Learn French</strong>
+                <em>with Natives</em>
+              </span>
+            </div>
+            <div className="pj-brandbar-end">
+              {meta?.code && <span className="pj-code-pill">#{meta.code}</span>}
+              <Button size="small" icon={<ArrowLeftOutlined />} onClick={back}>Change meeting</Button>
+            </div>
+          </div>
+        </header>
+        {node}
+      </div>
+    </ConfigProvider>
   );
 
   if (phase === 'loading') {
@@ -567,42 +596,54 @@ const PublicMeetingRoom: React.FC = () => {
       : undefined;
 
   const customStatusText = preStatus === 'lobby'
-    ? `${hostDisplay} has been notified. Keep this page open — you will join automatically as soon as they admit you.`
+    ? `${hostDisplay} has been notified. Keep this page open and you will join automatically as soon as they admit you.`
     : isWaitingForStart
       ? (preStatus === 'waiting'
           ? `Keep this page open. As soon as ${hostDisplay} starts the meeting, ${meta.require_approval ? 'you will enter the waiting room so they can admit you' : 'you will join the meeting automatically'}.`
           : `You can check your camera and microphone now. Click Join below to wait for ${hostDisplay} to start.`)
       : undefined;
 
-  return shell(
-    <PreJoin
-      title={meta.title}
-      hostName={meta.host_name}
-      userName={displayName.trim() || 'Guest'}
-      isHost={false}
-      live={meta.status === 'active'}
-      status={preStatus}
-      meetingCode={meta.code}
-      cancelLabel="Change meeting"
-      guest={{
-        needsPasscode: meta.needs_passcode && !guestToken,
-        passcode,
-        onPasscodeChange: v => { setPasscode(v); setPassError(null); },
-        error: passError,
-        since: lobbySince,
-        displayName,
-        onDisplayNameChange: setDisplayName,
-        email,
-        onEmailChange: setEmail,
-        customStatusTitle,
-        customStatusText,
-        primaryActionLabel: meta.require_approval ? 'Ask to join' : 'Join meeting',
+  return (
+    <ConfigProvider
+      theme={{
+        token: {
+          colorPrimary: '#183961',
+          fontSize: 13.5,
+          borderRadius: 10,
+          fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        },
       }}
-      onStopWaiting={stopWaiting}
-      onChoicesChange={c => { choicesRef.current = c; }}
-      onJoin={c => { choicesRef.current = c; handleJoin(); }}
-      onCancel={back}
-    />
+    >
+      <PreJoin
+        brandHeader
+        title={meta.title}
+        hostName={meta.host_name}
+        userName={displayName.trim() || 'Guest'}
+        isHost={false}
+        live={meta.status === 'active'}
+        status={preStatus}
+        meetingCode={meta.code}
+        cancelLabel="Change meeting"
+        guest={{
+          needsPasscode: meta.needs_passcode && !guestToken,
+          passcode,
+          onPasscodeChange: v => { setPasscode(v); setPassError(null); },
+          error: passError,
+          since: lobbySince,
+          displayName,
+          onDisplayNameChange: setDisplayName,
+          email,
+          onEmailChange: setEmail,
+          customStatusTitle,
+          customStatusText,
+          primaryActionLabel: meta.require_approval ? 'Ask to join' : 'Join meeting',
+        }}
+        onStopWaiting={stopWaiting}
+        onChoicesChange={c => { choicesRef.current = c; }}
+        onJoin={c => { choicesRef.current = c; handleJoin(); }}
+        onCancel={back}
+      />
+    </ConfigProvider>
   );
 };
 

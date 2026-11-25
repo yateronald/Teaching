@@ -69,7 +69,11 @@ export const Ic = {
     ),
 };
 
-const PALETTE = ['#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0d9488', '#059669', '#4f46e5', '#c026d3', '#0284c7', '#b45309'];
+const PALETTE = ['#183961', '#7c2d3e', '#2b5b6c', '#4c3f78', '#8a5a19', '#255c47', '#384b6b', '#7b3552'];
+
+/** Clean display title without synthetic em-dash separators. */
+export const cleanMeetingTitle = (title?: string | null) =>
+    String(title ?? '').replace(/\s*—\s*/g, ' - ').trim();
 
 /** Stable avatar colour per name. */
 export const colorFor = (name: string) => {

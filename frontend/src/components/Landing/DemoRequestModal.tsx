@@ -900,12 +900,12 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
               {(() => {
                 const showWaError = !waCheck.ok && (phoneTouched || formData.phone.trim().length >= 4);
                 const waToneClass = waCheck.ok ? ' is-ok' : showWaError ? ' is-err' : '';
-                let waNotice = 'WhatsApp number only (with country code) — an admin will contact you on WhatsApp.';
+                let waNotice = 'WhatsApp number only (with country code). An admin will contact you on WhatsApp.';
                 if (waCheck.ok) {
-                  waNotice = `WhatsApp verified (${waCheck.e164}) — an admin will contact you on WhatsApp.`;
+                  waNotice = `WhatsApp verified (${waCheck.e164}). An admin will contact you on WhatsApp.`;
                 } else if (showWaError) {
                   if (waCheck.problem === 'missing') {
-                    waNotice = 'WhatsApp number is compulsory — an admin will contact you on WhatsApp.';
+                    waNotice = 'WhatsApp number is compulsory. An admin will contact you on WhatsApp.';
                   } else if (waCheck.problem === 'need_country_code') {
                     waNotice = `Select your country or include your country code (e.g., ${waCheck.example}). WhatsApp only.`;
                   } else {
@@ -1166,7 +1166,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
             <div className="success-content">
               <CheckCircleOutlined className="success-icon" />
               <p className="status-lead">Thank you for your interest in learning French with us.</p>
-              <p>We have received your request. <strong>An administrator will send you an email shortly to request your availability</strong> for scheduling your demo meeting, and may also contact you on WhatsApp. Please check your inbox (and spam folder) for your availability link.</p>
+              <p>We have received your request. <strong>An instructor will contact you shortly by email with available times for your demo session</strong>, and may also reach out on WhatsApp. Please check your inbox (and spam folder) for your scheduling link.</p>
               <p>Please check your WhatsApp messages and email for confirmation details.</p>
             </div>
           </div>

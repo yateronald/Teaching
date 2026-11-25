@@ -55,7 +55,7 @@ const minutesBetween = (a?: string | null, b?: string | null) => {
   const d = (ms(b) - ms(a)) / 60000;
   return Number.isFinite(d) ? Math.max(0, Math.round(d)) : null;
 };
-const durationText = (m: number | null) => (m === null ? '—' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);
+const durationText = (m: number | null) => (m === null ? '-' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);
 const spanText = (msLeft: number) => {
   const m = Math.max(1, Math.round(msLeft / 60000));
   if (m < 60) return `${m} min`;
@@ -374,7 +374,7 @@ const MeetingList: React.FC = () => {
           <strong>{fmt(iso, { day: 'numeric' })}</strong>
           <em>{fmt(iso, { weekday: 'short' })}</em>
         </>
-      ) : <strong>—</strong>}
+      ) : <strong>-</strong>}
     </div>
   );
 
@@ -401,7 +401,7 @@ const MeetingList: React.FC = () => {
     if (m.status === 'waiting') {
       return isHost
         ? <Button type="primary" className={primary} onClick={() => open(m)}>Continue</Button>
-        : <Tooltip title="Your teacher is getting ready — you'll join as soon as class starts"><Button type="primary" className={primary} onClick={() => open(m)}>Join</Button></Tooltip>;
+        : <Tooltip title="Your teacher is getting ready. You'll join as soon as class starts"><Button type="primary" className={primary} onClick={() => open(m)}>Join</Button></Tooltip>;
     }
     const start = ms(m.started_at || m.scheduled_start);
     const hasStarted = Number.isFinite(start) && now >= start;
@@ -598,7 +598,7 @@ const MeetingList: React.FC = () => {
                       <div className="ml-row-title">
                         <span>{m.title}</span>
                         {kindBadges(m)}
-                        {m.is_locked && <Tooltip title="Locked — no new participants"><LockOutlined className="ml-lock" /></Tooltip>}
+                        {m.is_locked && <Tooltip title="Locked (no new participants)"><LockOutlined className="ml-lock" /></Tooltip>}
                         {m.my_role === 'guest' && <Tooltip title="The host admitted you to this class"><span className="ml-tag is-guest">Guest</span></Tooltip>}
                       </div>
                       <div className="ml-row-meta">
@@ -644,7 +644,7 @@ const MeetingList: React.FC = () => {
                       <div className="ml-row-title">
                         <span>{m.title}</span>
                         {kindBadges(m)}
-                        {m.is_locked && <Tooltip title="Locked — no new participants"><LockOutlined className="ml-lock" /></Tooltip>}
+                        {m.is_locked && <Tooltip title="Locked (no new participants)"><LockOutlined className="ml-lock" /></Tooltip>}
                         {m.my_role === 'guest' && <Tooltip title="The host admitted you to this class"><span className="ml-tag is-guest">Guest</span></Tooltip>}
                       </div>
                       <div className="ml-row-meta">
@@ -730,7 +730,7 @@ const MeetingList: React.FC = () => {
               </div>
             )}
             <Form.Item name="title" label="Title" rules={[{ required: true, message: 'Give the meeting a title' }]}>
-              <Input placeholder={isAdmin && createMode === 'public' ? 'e.g. Admissions call or Group briefing' : 'e.g. French grammar — week 5'} maxLength={120} />
+              <Input placeholder={isAdmin && createMode === 'public' ? 'e.g. Admissions call or Group briefing' : 'e.g. French grammar: week 5'} maxLength={120} />
             </Form.Item>
             <Form.Item name="description" label={<>Description <span className="ml-optional">optional</span></>}>
               <Input.TextArea placeholder="What will you cover in this meeting?" autoSize={{ minRows: 2, maxRows: 4 }} maxLength={500} />
@@ -767,7 +767,7 @@ const MeetingList: React.FC = () => {
                 </Form.Item>
                 <Form.Item name="require_approval" label="Who can join">
                   <Radio.Group style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <Radio value={true}><strong>Require host approval</strong> — guests wait in lobby to be admitted</Radio>
+                    <Radio value={true}><strong>Require host approval:</strong> guests wait in lobby to be admitted</Radio>
                     <Radio value={false}><strong>Anyone with the link or ID &amp; passcode</strong> can join directly once started</Radio>
                   </Radio.Group>
                 </Form.Item>

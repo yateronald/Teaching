@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { createBulkNotifications } = require('../services/notificationService');
+const { hasColumn } = require('../services/schemaFeatures');
 
 const router = express.Router();
 
@@ -51,8 +52,8 @@ function isValidTimezone(tz) {
     }
 }
 
-function sanitizeSlots(rawSlots) {
-    if (!Array.isArray(rawSlots) || rawSlots.length === 0 || rawSlots.length > 5) {
+function sanitizeSlots(rawSlots, max = 10) {
+    if (!Array.isArray(rawSlots) || rawSlots.length === 0 || rawSlots.length > max) {
         return null;
     }
     const cleaned = [];
@@ -68,9 +69,19 @@ function sanitizeSlots(rawSlots) {
     return cleaned;
 }
 
+function extractProposedSlots(row) {
+    const raw = Array.isArray(row?.proposed_slots)
+        ? row.proposed_slots
+        : (row?.proposed_days && typeof row.proposed_days === 'object' && Array.isArray(row.proposed_days.slots)
+            ? row.proposed_days.slots
+            : null);
+    if (!raw || raw.length === 0) return null;
+    return sanitizeSlots(raw, 15);
+}
+
 /**
  * GET /api/public/demo-availability/:token
- * Inspects a single-use availability request without exposing private prospect contact details.
+ * Inspects a single-use availability request without exposing private prospect or admin contact details.
  */
 router.get('/:token', getLimiter, async (req, res) => {
     try {
@@ -80,17 +91,18 @@ router.get('/:token', getLimiter, async (req, res) => {
             return res.status(404).json({ status: 'invalid', support_email: support });
         }
 
+        const withProposedSlots = await hasColumn(req.db, 'demo_availability_requests', 'proposed_slots');
         const row = await req.db.get(
             `SELECT dar.id, dar.status, dar.proposed_timezone,
                     dar.proposed_start_date::text AS proposed_start_date,
                     dar.proposed_end_date::text AS proposed_end_date,
                     dar.proposed_time_start, dar.proposed_time_end,
-                    dar.proposed_days, dar.admin_note, dar.expires_at, dar.submitted_at,
-                    dr.full_name, dr.timezone AS requester_timezone,
-                    u.first_name AS admin_first_name, u.last_name AS admin_last_name
+                    dar.proposed_days,
+                    ${withProposedSlots ? 'dar.proposed_slots,' : 'NULL::jsonb AS proposed_slots,'}
+                    dar.admin_note, dar.expires_at, dar.submitted_at,
+                    dr.full_name, dr.timezone AS requester_timezone
              FROM demo_availability_requests dar
              JOIN demo_requests dr ON dr.id = dar.demo_request_id
-             LEFT JOIN users u ON u.id = dar.created_by
              WHERE dar.token_hash = $1`,
             [hashToken(raw)]
         );
@@ -115,19 +127,18 @@ router.get('/:token', getLimiter, async (req, res) => {
         }
 
         const firstName = String(row.full_name || '').trim().split(/\s+/)[0] || 'there';
-        const adminName = `${row.admin_first_name || ''} ${row.admin_last_name || ''}`.trim() || 'Our team';
+        const proposedSlots = extractProposedSlots(row);
 
         return res.json({
             status: 'pending',
             first_name: firstName,
-            admin_name: adminName,
             requester_timezone: row.requester_timezone || null,
             proposed_timezone: row.proposed_timezone,
             proposed_start_date: row.proposed_start_date,
             proposed_end_date: row.proposed_end_date,
             proposed_time_start: row.proposed_time_start,
             proposed_time_end: row.proposed_time_end,
-            proposed_days: row.proposed_days || null,
+            proposed_slots: proposedSlots,
             admin_note: row.admin_note || null,
             expires_at: row.expires_at,
             support_email: support,
@@ -154,9 +165,9 @@ router.post('/:token', submitLimiter, async (req, res) => {
         if (!isValidTimezone(tz)) {
             return res.status(400).json({ error: 'Please select a valid timezone.' });
         }
-        const slots = sanitizeSlots(req.body?.slots);
+        const slots = sanitizeSlots(req.body?.slots, 10);
         if (!slots) {
-            return res.status(400).json({ error: 'Please provide 1 to 5 valid date and time windows (end must be after start).' });
+            return res.status(400).json({ error: 'Please provide 1 to 10 valid date and time windows (end must be after start).' });
         }
         const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 1000) : null;
 
@@ -217,12 +228,12 @@ router.post('/:token', submitLimiter, async (req, res) => {
         try {
             const admins = await req.db.all("SELECT id FROM users WHERE role = 'admin' AND is_active = true");
             const firstSlot = slots[0];
-            const summaryTxt = `${firstSlot.date} ${firstSlot.start}–${firstSlot.end} (${tz})`;
+            const summaryTxt = `${firstSlot.date} ${firstSlot.start}-${firstSlot.end} (${tz})`;
             if (admins.length > 0) {
                 await createBulkNotifications(req.db, admins.map(a => a.id), {
                     type: 'demo_availability',
                     title: `Availability received: ${demo?.full_name || 'Prospect'}`,
-                    message: `${demo?.full_name || 'A prospect'} submitted availability (${summaryTxt}). Ready to schedule!`,
+                    message: `${demo?.full_name || 'A prospect'} submitted availability (${summaryTxt}). Ready to schedule.`,
                     link: '/app/demo-requests',
                     entity_type: 'demo_request',
                     entity_id: row.demo_request_id,

@@ -1,15 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, ConfigProvider, Input, Segmented } from 'antd';
-import {
-  KeyOutlined, LinkOutlined, LockOutlined, MailOutlined, SafetyCertificateOutlined, UserOutlined, VideoCameraOutlined,
-} from '@ant-design/icons';
+import { Button, ConfigProvider, Input } from 'antd';
+import { ArrowRightOutlined, KeyOutlined, LinkOutlined, MailOutlined, UserOutlined } from '@ant-design/icons';
 import { formatMeetingIdInput, passcodeFromLink } from './meetingUi';
 import './PublicMeetingEntry.css';
 
 const API_BASE = ((import.meta.env.VITE_API_BASE_URL as string | undefined) || 'https://api.learnfrenchwithnatives.com/api').replace(/\/$/, '');
 
 const cleanPass = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+
+const formatLocalClock = () => {
+  try {
+    const now = new Date();
+    const time = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' }).format(now);
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone?.replace(/_/g, ' ') || '';
+    return tz ? `${time} · ${tz}` : time;
+  } catch {
+    return '';
+  }
+};
 
 const PublicMeetingEntry: React.FC = () => {
   const navigate = useNavigate();
@@ -21,17 +30,20 @@ const PublicMeetingEntry: React.FC = () => {
   const [passcodeInput, setPasscodeInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [clockText, setClockText] = useState(formatLocalClock);
 
   useEffect(() => {
     const prevTitle = document.title;
-    document.title = 'Join a Meeting — Learn French with Natives';
+    document.title = 'Join a Meeting | Learn French with Natives';
     const meta = document.createElement('meta');
     meta.name = 'robots';
     meta.content = 'noindex, nofollow';
     document.head.appendChild(meta);
+    const timer = window.setInterval(() => setClockText(formatLocalClock()), 30000);
     return () => {
       document.title = prevTitle;
       meta.remove();
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -54,7 +66,7 @@ const PublicMeetingEntry: React.FC = () => {
     const rawRef = mode === 'link' ? linkInput.trim() : codeInput.trim();
     const extractedPass = mode === 'link' ? (passcodeFromLink(linkInput) || passcodeInput) : passcodeInput;
     if (!rawRef) {
-      setError(mode === 'link' ? 'Please paste your meeting link.' : 'Please enter your Meeting ID.');
+      setError(mode === 'link' ? 'Please paste your invitation link.' : 'Please enter your Meeting ID.');
       return;
     }
 
@@ -71,9 +83,9 @@ const PublicMeetingEntry: React.FC = () => {
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
         if (resp.status === 403 && data.code === 'PASSCODE_REQUIRED' && mode === 'link') {
-          setError('This link did not include a passcode. Enter the 6-character passcode below or switch to Meeting ID & Passcode.');
+          setError('This link did not include a passcode. Enter the 6-character passcode below or switch to ID & Passcode.');
         } else {
-          setError(data.error || 'Could not verify this meeting. Check your link, ID and passcode.');
+          setError(data.error || 'Could not verify this meeting. Check your link, Meeting ID and passcode.');
         }
         return;
       }
@@ -87,63 +99,96 @@ const PublicMeetingEntry: React.FC = () => {
         },
       });
     } catch {
-      setError('Network error — please check your internet connection and try again.');
+      setError('Unable to reach the server. Check your internet connection and try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <ConfigProvider theme={{ token: { colorPrimary: '#047857', borderRadius: 10, fontSize: 14 } }}>
+    <ConfigProvider
+      theme={{
+        token: {
+          colorPrimary: '#183961',
+          borderRadius: 10,
+          fontSize: 14,
+          fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        },
+      }}
+    >
       <div className="pme-page">
+        <div className="pme-tricolor" aria-hidden />
         <header className="pme-topbar">
-          <div className="pme-brand">
-            <img src="/assets/Logo.png" alt="Learn French with Natives" />
-            <span className="pme-brand-name">Learn French with Natives</span>
+          <div className="pme-top-inner">
+            <div className="pme-brand">
+              <img src="/assets/Logo.png" alt="" width={38} height={38} />
+              <span>
+                <strong>Learn French</strong>
+                <em>with Natives</em>
+              </span>
+            </div>
+            {clockText && <span className="pme-clock">{clockText}</span>}
           </div>
-          <span className="pme-brand-tag"><LockOutlined /> Encrypted Live Room</span>
         </header>
 
         <main className="pme-main">
           <section className="pme-copy">
-            <h1>Join your live French meeting in seconds.</h1>
-            <p>
-              Enter your invitation link or Meeting ID and passcode. No student account required — check your camera and microphone before entering the room.
+            <span className="pme-eyebrow">Live classroom</span>
+            <h1>Join your live session.</h1>
+            <p className="pme-lead">
+              Enter the invitation link or the Meeting ID and passcode from your confirmation email. No student account is needed.
             </p>
-            <div className="pme-pillars">
-              <div className="pme-pillar">
-                <span className="pme-pillar-ic"><VideoCameraOutlined /></span>
+
+            <ol className="pme-steps">
+              <li>
+                <span className="pme-step-num">01</span>
                 <div>
-                  <strong>HD Video &amp; Clear Audio</strong>
-                  <span>Test your microphone, speakers, and camera on the pre-join screen before you appear live.</span>
+                  <strong>Verify your invitation</strong>
+                  <span>Enter the 10-letter Meeting ID (like <code>abc-defg-hij</code>) and 6-character passcode, or paste the direct link.</span>
                 </div>
-              </div>
-              <div className="pme-pillar">
-                <span className="pme-pillar-ic"><SafetyCertificateOutlined /></span>
+              </li>
+              <li>
+                <span className="pme-step-num">02</span>
                 <div>
-                  <strong>Host-Controlled Waiting Room</strong>
-                  <span>If the meeting has not started yet or requires approval, we automatically keep your place until the host begins.</span>
+                  <strong>Check camera and microphone</strong>
+                  <span>Test your video and sound privately before appearing live in front of your teacher.</span>
                 </div>
-              </div>
-            </div>
+              </li>
+              <li>
+                <span className="pme-step-num">03</span>
+                <div>
+                  <strong>Enter automatically or wait for host</strong>
+                  <span>If the session has not started yet or requires approval, keeping the tab open lets you in as soon as the host begins.</span>
+                </div>
+              </li>
+            </ol>
           </section>
 
           <section className="pme-card" aria-label="Join a meeting">
             <div className="pme-card-head">
-              <h2>Enter meeting details</h2>
-              <p>Use either your invitation link or the Meeting ID &amp; passcode.</p>
+              <h2>Meeting sign-in</h2>
+              <p>Use your invitation credentials to open the camera check.</p>
             </div>
 
-            <div className="pme-mode">
-              <Segmented
-                block
-                value={mode}
-                onChange={v => { setMode(v as 'code' | 'link'); setError(null); }}
-                options={[
-                  { value: 'code', label: 'ID & Passcode' },
-                  { value: 'link', label: 'Meeting Link' },
-                ]}
-              />
+            <div className="pme-tabs" role="tablist" aria-label="Join method">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'code'}
+                className={mode === 'code' ? 'is-active' : ''}
+                onClick={() => { setMode('code'); setError(null); }}
+              >
+                ID &amp; Passcode
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'link'}
+                className={mode === 'link' ? 'is-active' : ''}
+                onClick={() => { setMode('link'); setError(null); }}
+              >
+                Invitation Link
+              </button>
             </div>
 
             <form onSubmit={handleJoin}>
@@ -153,7 +198,7 @@ const PublicMeetingEntry: React.FC = () => {
                   id="pme-name"
                   size="large"
                   prefix={<UserOutlined />}
-                  placeholder="Full name shown in the meeting"
+                  placeholder="Full name shown to the host"
                   maxLength={80}
                   value={name}
                   onChange={e => { setName(e.target.value); setError(null); }}
@@ -189,7 +234,7 @@ const PublicMeetingEntry: React.FC = () => {
                   </div>
                   {!passcodeFromLink(linkInput) && (
                     <div className="pme-field">
-                      <label htmlFor="pme-link-pass">Passcode (if not included in link)</label>
+                      <label htmlFor="pme-link-pass">Passcode (if omitted from link)</label>
                       <Input
                         id="pme-link-pass"
                         size="large"
@@ -203,13 +248,13 @@ const PublicMeetingEntry: React.FC = () => {
                   )}
                 </>
               ) : (
-                <>
+                <div className="pme-split">
                   <div className="pme-field">
                     <label htmlFor="pme-code">Meeting ID *</label>
                     <Input
                       id="pme-code"
                       size="large"
-                      prefix={<span style={{ fontWeight: 700, color: '#64748b' }}>#</span>}
+                      prefix={<span className="pme-hash">#</span>}
                       placeholder="abc-defg-hij"
                       value={codeInput}
                       onChange={e => { setCodeInput(formatMeetingIdInput(e.target.value)); setError(null); }}
@@ -221,13 +266,13 @@ const PublicMeetingEntry: React.FC = () => {
                       id="pme-pass"
                       size="large"
                       prefix={<KeyOutlined />}
-                      placeholder="6-character passcode"
+                      placeholder="K7M2QX"
                       maxLength={6}
                       value={passcodeInput}
                       onChange={e => { setPasscodeInput(cleanPass(e.target.value)); setError(null); }}
                     />
                   </div>
-                </>
+                </div>
               )}
 
               {error && <div className="pme-error" role="alert">{error}</div>}
@@ -238,17 +283,19 @@ const PublicMeetingEntry: React.FC = () => {
                 size="large"
                 block
                 loading={loading}
-                icon={<VideoCameraOutlined />}
-                style={{ height: 48, fontWeight: 600 }}
+                className="pme-submit"
               >
-                Continue to pre-join
+                <span>Continue to camera check</span>
+                <ArrowRightOutlined />
               </Button>
             </form>
           </section>
         </main>
 
         <footer className="pme-footer">
-          © {new Date().getFullYear()} Learn French with Natives · Live Meeting Portal
+          <span>Learn French with Natives</span>
+          <span aria-hidden>·</span>
+          <a href="mailto:support@learnfrenchwithnatives.com">support@learnfrenchwithnatives.com</a>
         </footer>
       </div>
     </ConfigProvider>

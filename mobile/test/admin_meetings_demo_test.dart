@@ -56,11 +56,39 @@ void main() {
       expect(Demo.availabilityColor('superseded'), AppColors.warn);
     });
 
-    test('formatSlot formats date and window', () {
+    test('formatSlot formats date and window in EN and FR', () {
       expect(
         Demo.formatSlot({'date': '2026-12-01', 'start': '10:00', 'end': '11:30'}),
-        '2026-12-01 · 10:00 – 11:30',
+        'Tue, Dec 1 · 10:00 - 11:30',
       );
+      expect(
+        Demo.formatSlot({'date': '2026-12-01', 'start': '10:00', 'end': '11:30'}, fr: true),
+        'Mar 1 déc. · 10:00 - 11:30',
+      );
+    });
+
+    test('proposedSlots reads direct list or legacy proposed_days.slots fallback', () {
+      expect(
+        Demo.proposedSlots({
+          'proposed_slots': [
+            {'date': '2026-11-27', 'start': '11:00', 'end': '12:00'},
+          ],
+        }).length,
+        1,
+      );
+      expect(
+        Demo.proposedSlots({
+          'proposed_days': {
+            'version': 2,
+            'slots': [
+              {'date': '2026-11-27', 'start': '11:00', 'end': '12:00'},
+              {'date': '2026-12-01', 'start': '14:00', 'end': '15:00'},
+            ],
+          },
+        }).length,
+        2,
+      );
+      expect(Demo.proposedSlots({}), isEmpty);
     });
   });
 }

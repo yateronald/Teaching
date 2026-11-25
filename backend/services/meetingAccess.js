@@ -481,7 +481,7 @@ async function notifyJoinRequest(db, meeting, user) {
             user_id: meeting.teacher_id,
             type: 'meeting_join_request',
             title: `${name} is waiting to join`,
-            message: `“${meeting.title}” — open the class to admit or deny them.`,
+            message: `"${meeting.title}": open the class to admit or deny them.`,
             link: `/app/meeting/${meeting.room_name}`,
             entity_type: 'meeting',
             entity_id: meeting.id,
@@ -504,7 +504,7 @@ async function notifyGuestJoinRequest(db, meeting, guestName) {
         await createBulkNotifications(db, [...recipientIds].filter(Boolean), {
             type: 'meeting_join_request',
             title: `${guestName} is waiting to join`,
-            message: `External guest in “${meeting.title}” — open the meeting to admit or deny.`,
+            message: `External guest in "${meeting.title}": open the meeting to admit or deny.`,
             link: `/app/meeting/${meeting.room_name}`,
             entity_type: 'meeting',
             entity_id: meeting.id,

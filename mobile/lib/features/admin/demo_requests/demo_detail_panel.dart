@@ -379,7 +379,7 @@ class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
                         children: [
                           Expanded(
                             child: Text(
-                              Demo.formatSlot(sl),
+                              Demo.formatSlot(sl, fr: fr),
                               style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700),
                             ),
                           ),
@@ -400,17 +400,34 @@ class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
               ),
             );
           }
+          final proposed = Demo.proposedSlots(av);
           return AdminCard(
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Pill(Demo.availabilityLabel(avStatus, fr), color: Demo.availabilityColor(avStatus)),
-                const SizedBox(height: 8),
-                Text(
-                  '${J.s(av['proposed_start_date'])} → ${J.s(av['proposed_end_date'])} · ${J.s(av['proposed_time_start'])}–${J.s(av['proposed_time_end'])} (${J.s(av['proposed_timezone'])})',
-                  style: AppTypography.bodySmall.copyWith(color: AppColors.ink, fontWeight: FontWeight.w600),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Pill(Demo.availabilityLabel(avStatus, fr), color: Demo.availabilityColor(avStatus)),
+                    Text(J.s(av['proposed_timezone']), style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
+                  ],
                 ),
+                const SizedBox(height: 8),
+                if (proposed.isNotEmpty)
+                  for (final sl in proposed)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        Demo.formatSlot(sl, fr: fr),
+                        style: AppTypography.bodySmall.copyWith(color: AppColors.ink, fontWeight: FontWeight.w600),
+                      ),
+                    )
+                else
+                  Text(
+                    '${J.s(av['proposed_start_date'])} to ${J.s(av['proposed_end_date'])} · ${J.s(av['proposed_time_start'])} - ${J.s(av['proposed_time_end'])}',
+                    style: AppTypography.bodySmall.copyWith(color: AppColors.ink, fontWeight: FontWeight.w600),
+                  ),
               ],
             ),
           );
@@ -568,7 +585,7 @@ class _Progress extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(Demo.statusLabel(steps[i], fr), textAlign: TextAlign.center, style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, fontSize: 11, color: i <= at ? AppColors.ink : AppColors.textMuted)),
                 Text(
-                  i <= at && dates[steps[i]] != null ? AdminFmt.dayShort(context, dates[steps[i]]) : '—',
+                  i <= at && dates[steps[i]] != null ? AdminFmt.dayShort(context, dates[steps[i]]) : '-',
                   style: AppTypography.caption.copyWith(fontSize: 10.5, color: AppColors.textMuted),
                 ),
               ],
@@ -599,7 +616,7 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
   bool _requireApproval = true;
   int? _hostId;
   late int? _teacher = widget.request['teacher_id'] == null ? null : J.i(widget.request['teacher_id']);
-  late final _title = TextEditingController(text: 'French Demo — ${J.s(widget.request['full_name'])}');
+  late final _title = TextEditingController(text: 'French Demo: ${J.s(widget.request['full_name'])}');
   late final _link = TextEditingController(text: J.s(widget.request['meeting_link']));
   final _notes = TextEditingController();
   List<Map<String, dynamic>> _teachers = [];
@@ -818,7 +835,14 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
   }
 }
 
-/// Asks the prospect for their availability by sending a single-use expiring link.
+class _ProposedSlot {
+  DateTime date;
+  TimeOfDay start;
+  TimeOfDay end;
+  _ProposedSlot({required this.date, required this.start, required this.end});
+}
+
+/// Asks the prospect for their availability by proposing one or more flexible date/time options.
 class _AskAvailabilityForm extends ConsumerStatefulWidget {
   final Map<String, dynamic> request;
   const _AskAvailabilityForm({required this.request});
@@ -828,10 +852,13 @@ class _AskAvailabilityForm extends ConsumerStatefulWidget {
 }
 
 class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
-  late DateTime _startDate = DateTime.now().add(const Duration(days: 1));
-  late DateTime _endDate = DateTime.now().add(const Duration(days: 7));
-  TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
-  TimeOfDay _endTime = const TimeOfDay(hour: 18, minute: 0);
+  final List<_ProposedSlot> _slots = [
+    _ProposedSlot(
+      date: DateTime.now().add(const Duration(days: 1)),
+      start: const TimeOfDay(hour: 10, minute: 0),
+      end: const TimeOfDay(hour: 11, minute: 0),
+    ),
+  ];
   late String _tz = J.s(ref.read(authNotifierProvider).user?.timezone).isNotEmpty
       ? J.s(ref.read(authNotifierProvider).user?.timezone)
       : 'UTC';
@@ -848,28 +875,58 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
   String _isoDate(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   String _hm(TimeOfDay t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
+  void _addOption() {
+    if (_slots.length >= 15) return;
+    final last = _slots.last;
+    setState(() {
+      _error = null;
+      _slots.add(_ProposedSlot(
+        date: last.date.add(const Duration(days: 1)),
+        start: last.start,
+        end: last.end,
+      ));
+    });
+  }
+
+  void _duplicateOption(int index) {
+    if (_slots.length >= 15) return;
+    final src = _slots[index];
+    final canShift = src.end.hour < 22;
+    setState(() {
+      _error = null;
+      _slots.insert(
+        index + 1,
+        _ProposedSlot(
+          date: src.date,
+          start: canShift ? TimeOfDay(hour: src.start.hour + 1, minute: src.start.minute) : src.start,
+          end: canShift ? TimeOfDay(hour: src.end.hour + 1, minute: src.end.minute) : src.end,
+        ),
+      );
+    });
+  }
+
   Future<void> _send() async {
     final fr = context.isFrench;
-    if (_endDate.isBefore(_startDate)) {
-      setState(() => _error = fr ? 'La date de fin doit suivre le début.' : 'End date must be on or after start date.');
-      return;
-    }
-    if (_hm(_endTime).compareTo(_hm(_startTime)) <= 0) {
-      setState(() => _error = fr ? 'L’heure de fin doit suivre le début.' : 'End time must be after start time.');
-      return;
+    final payload = <Map<String, String>>[];
+    for (var i = 0; i < _slots.length; i++) {
+      final sl = _slots[i];
+      final s = _hm(sl.start);
+      final e = _hm(sl.end);
+      if (e.compareTo(s) <= 0) {
+        setState(() => _error = fr ? 'Option #${i + 1} : l’heure de fin doit suivre le début.' : 'Option #${i + 1}: end time must be after start time.');
+        return;
+      }
+      payload.add({'date': _isoDate(sl.date), 'start': s, 'end': e});
     }
     setState(() { _sending = true; _error = null; });
     try {
       await ref.read(apiClientProvider).post('/demo-requests/${J.i(widget.request['id'])}/request-availability', data: {
-        'proposed_start_date': _isoDate(_startDate),
-        'proposed_end_date': _isoDate(_endDate),
-        'proposed_time_start': _hm(_startTime),
-        'proposed_time_end': _hm(_endTime),
+        'proposed_slots': payload,
         'proposed_timezone': _tz,
         if (_note.text.trim().isNotEmpty) 'admin_note': _note.text.trim(),
       });
       if (!mounted) return;
-      adminToast(context, fr ? 'Lien de disponibilité envoyé par e-mail' : 'Availability link emailed to prospect');
+      adminToast(context, fr ? 'Options de disponibilité envoyées par e-mail' : 'Availability options emailed to prospect');
       Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) setState(() { _error = apiErrorText(context, e); _sending = false; });
@@ -890,75 +947,115 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
       ],
       children: [
         const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: InkWell(
-                onTap: () async {
-                  final d = await showDatePicker(context: context, initialDate: _startDate, firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 90)));
-                  if (d != null) setState(() { _startDate = d; if (_endDate.isBefore(d)) _endDate = d; });
-                },
-                child: InputDecorator(
-                  decoration: adminInputDecoration(fr ? 'Date début' : 'From date'),
-                  child: Text(_isoDate(_startDate)),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: InkWell(
-                onTap: () async {
-                  final d = await showDatePicker(context: context, initialDate: _endDate, firstDate: _startDate, lastDate: DateTime.now().add(const Duration(days: 90)));
-                  if (d != null) setState(() => _endDate = d);
-                },
-                child: InputDecorator(
-                  decoration: adminInputDecoration(fr ? 'Date fin' : 'To date'),
-                  child: Text(_isoDate(_endDate)),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: InkWell(
-                onTap: () async {
-                  final t = await showTimePicker(context: context, initialTime: _startTime);
-                  if (t != null) setState(() => _startTime = t);
-                },
-                child: InputDecorator(
-                  decoration: adminInputDecoration(fr ? 'Heure début' : 'From hour'),
-                  child: Text(_hm(_startTime)),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: InkWell(
-                onTap: () async {
-                  final t = await showTimePicker(context: context, initialTime: _endTime);
-                  if (t != null) setState(() => _endTime = t);
-                },
-                child: InputDecorator(
-                  decoration: adminInputDecoration(fr ? 'Heure fin' : 'To hour'),
-                  child: Text(_hm(_endTime)),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
         AdminSelect<String>(
           label: fr ? 'Fuseau horaire' : 'Timezone',
           value: _tz,
           options: [for (final z in tzList) FilterOption<String>(z, z)],
           onChanged: (v) => setState(() => _tz = v ?? _tz),
         ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${fr ? 'Créneaux proposés' : 'Proposed options'} (${_slots.length}/15)',
+              style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700, color: AppColors.ink),
+            ),
+            if (_slots.length < 15)
+              TextButton.icon(
+                onPressed: _addOption,
+                icon: const Icon(Icons.add, size: 18),
+                label: Text(fr ? 'Ajouter un créneau' : 'Add option'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        for (var i = 0; i < _slots.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: AdminCard(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${fr ? 'Option' : 'Option'} ${i + 1}',
+                          style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, color: AppColors.adminAccent),
+                        ),
+                      ),
+                      if (_slots.length < 15)
+                        IconButton(
+                          tooltip: fr ? 'Dupliquer' : 'Duplicate',
+                          icon: const Icon(Icons.copy_outlined, size: 18),
+                          onPressed: () => _duplicateOption(i),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      if (_slots.length > 1)
+                        IconButton(
+                          tooltip: fr ? 'Supprimer' : 'Remove',
+                          icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.bad),
+                          onPressed: () => setState(() { _error = null; _slots.removeAt(i); }),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  InkWell(
+                    onTap: () async {
+                      final d = await showDatePicker(
+                        context: context,
+                        initialDate: _slots[i].date,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 90)),
+                      );
+                      if (d != null) setState(() { _error = null; _slots[i].date = d; });
+                    },
+                    child: InputDecorator(
+                      decoration: adminInputDecoration(fr ? 'Date' : 'Date', suffix: const Icon(Icons.calendar_today_outlined, size: 16)),
+                      child: Text(AdminFmt.weekdayDay(context, _slots[i].date)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final t = await showTimePicker(context: context, initialTime: _slots[i].start);
+                            if (t != null) setState(() { _error = null; _slots[i].start = t; });
+                          },
+                          child: InputDecorator(
+                            decoration: adminInputDecoration(fr ? 'Début' : 'From'),
+                            child: Text(_hm(_slots[i].start)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final t = await showTimePicker(context: context, initialTime: _slots[i].end);
+                            if (t != null) setState(() { _error = null; _slots[i].end = t; });
+                          },
+                          child: InputDecorator(
+                            decoration: adminInputDecoration(fr ? 'Fin' : 'To'),
+                            child: Text(_hm(_slots[i].end)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
         AdminField(label: fr ? 'Note (facultatif)' : 'Note (optional)', controller: _note, maxLines: 3),
-        if (_error != null)
+        if (_error != null) ...[
+          const SizedBox(height: 8),
           Text(_error!, style: AppTypography.bodySmall.copyWith(color: AppColors.bad)),
+        ],
       ],
     );
   }

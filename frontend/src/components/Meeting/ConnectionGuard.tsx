@@ -361,7 +361,7 @@ const ConnectionGuard: React.FC<Props> = (props) => {
                         <p>
                             {status === 'offline'
                                 ? "We'll bring you back the moment your internet returns. You don't need to do anything."
-                                : "Your connection dropped — maybe your computer went to sleep. We're bringing you back into the same class."}
+                                : "Your connection dropped (your computer may have gone to sleep). We're bringing you back into the same class."}
                         </p>
                         <p className="mr-guard-meta">
                             {status === 'offline'
@@ -382,7 +382,7 @@ const ConnectionGuard: React.FC<Props> = (props) => {
 
             {status === 'ok' && audioBlocked && (
                 <button type="button" className="mr-guard-sound" onClick={unlockAudio}>
-                    <SoundOutlined /> Sound is paused — tap to turn it back on
+                    <SoundOutlined /> Sound is paused. Tap to turn it back on.
                 </button>
             )}
         </>,
