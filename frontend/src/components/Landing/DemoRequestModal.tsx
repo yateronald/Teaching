@@ -240,6 +240,12 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
   const [errorMessage, setErrorMessage] = useState('');
   const [customTimezone, setCustomTimezone] = useState('');
   const [phoneTouched, setPhoneTouched] = useState(false);
+  const [submittedReceipt, setSubmittedReceipt] = useState<{
+    firstName: string;
+    email: string;
+    phone: string;
+    isExam: boolean;
+  } | null>(null);
   const [formData, setFormData] = useState<FormData>({
     fullName: '',
     email: '',
@@ -349,6 +355,12 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
       }
 
       if (response.ok) {
+        setSubmittedReceipt({
+          firstName: payload.fullName.split(/\s+/)[0] || '',
+          email: payload.email,
+          phone: payload.phone,
+          isExam,
+        });
         setShowSuccessModal(true);
         // Reset form
         setFormData({
@@ -394,6 +406,8 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
     if (!isLoading) {
       onClose();
       setShowSuccessModal(false);
+    setSubmittedReceipt(null);
+      setSubmittedReceipt(null);
       setShowErrorModal(false);
       setErrorMessage('');
       setPhoneTouched(false);
@@ -404,6 +418,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
 
   const handleSuccessClose = () => {
     setShowSuccessModal(false);
+    setSubmittedReceipt(null);
     onClose();
   };
 
@@ -900,12 +915,12 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
               {(() => {
                 const showWaError = !waCheck.ok && (phoneTouched || formData.phone.trim().length >= 4);
                 const waToneClass = waCheck.ok ? ' is-ok' : showWaError ? ' is-err' : '';
-                let waNotice = 'WhatsApp number only (with country code). An admin will contact you on WhatsApp.';
+                let waNotice = 'WhatsApp number only (with country code). Our team will contact you on WhatsApp or email.';
                 if (waCheck.ok) {
-                  waNotice = `WhatsApp verified (${waCheck.e164}). An admin will contact you on WhatsApp.`;
+                  waNotice = `WhatsApp verified (${waCheck.e164}). Our team will contact you on WhatsApp or email.`;
                 } else if (showWaError) {
                   if (waCheck.problem === 'missing') {
-                    waNotice = 'WhatsApp number is compulsory. An admin will contact you on WhatsApp.';
+                    waNotice = 'WhatsApp number is compulsory so our team can reach you.';
                   } else if (waCheck.problem === 'need_country_code') {
                     waNotice = `Select your country or include your country code (e.g., ${waCheck.example}). WhatsApp only.`;
                   } else {
@@ -1157,22 +1172,64 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
         <div className="demo-modal success-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
           <span className="sheet-grabber" aria-hidden="true" />
           <div className="modal-header success-header">
-            <h2 id="demo-modal-title">Request sent</h2>
+            <div className="modal-heading">
+              <span className="modal-eyebrow">Request confirmed</span>
+              <h2 id="demo-modal-title">Request received</h2>
+            </div>
             <button className="close-button" onClick={handleSuccessClose} aria-label="Close">
               <CloseOutlined />
             </button>
           </div>
           <div className="modal-body success-body">
             <div className="success-content">
-              <CheckCircleOutlined className="success-icon" />
-              <p className="status-lead">Thank you for your interest in learning French with us.</p>
-              <p>We have received your request. <strong>An instructor will contact you shortly by email with available times for your demo session</strong>, and may also reach out on WhatsApp. Please check your inbox (and spam folder) for your scheduling link.</p>
-              <p>Please check your WhatsApp messages and email for confirmation details.</p>
+              <div className="success-emblem" aria-hidden="true">
+                <CheckCircleFilled />
+              </div>
+              <p className="status-lead">
+                Thank you{submittedReceipt?.firstName ? `, ${submittedReceipt.firstName}` : ''}. We received your {submittedReceipt?.isExam ? 'exam preparation' : 'demo class'} request.
+              </p>
+              <p className="success-sub">
+                A confirmation email has been sent to your inbox. Our team will reach out shortly by WhatsApp or email.
+              </p>
+              {submittedReceipt && (submittedReceipt.email || submittedReceipt.phone) && (
+                <div className="success-receipt">
+                  {submittedReceipt.email && (
+                    <div className="success-receipt-row">
+                      <span>Confirmation sent to</span>
+                      <strong>{submittedReceipt.email}</strong>
+                    </div>
+                  )}
+                  {submittedReceipt.phone && (
+                    <div className="success-receipt-row">
+                      <span>WhatsApp contact</span>
+                      <strong>{submittedReceipt.phone}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
+              <ol className="success-steps">
+                <li>
+                  <span className="success-step-num">01</span>
+                  <span>Check your inbox (and spam folder) for your confirmation email.</span>
+                </li>
+                <li>
+                  <span className="success-step-num">02</span>
+                  <span>Our team reviews your French level and learning goals.</span>
+                </li>
+                <li>
+                  <span className="success-step-num">03</span>
+                  <span>
+                    {submittedReceipt?.isExam
+                      ? 'We contact you shortly by email or WhatsApp with your exam preparation plan.'
+                      : 'We contact you shortly by email or WhatsApp with available times to schedule your live demo.'}
+                  </span>
+                </li>
+              </ol>
             </div>
           </div>
           <div className="modal-footer">
             <button className="btn-primary" onClick={handleSuccessClose}>
-              Close
+              Done
             </button>
           </div>
         </div>
@@ -1187,14 +1244,19 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
         <div className="demo-modal error-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
           <span className="sheet-grabber" aria-hidden="true" />
           <div className="modal-header error-header">
-            <h2 id="demo-modal-title">Something went wrong</h2>
+            <div className="modal-heading">
+              <span className="modal-eyebrow">Submission issue</span>
+              <h2 id="demo-modal-title">Something went wrong</h2>
+            </div>
             <button className="close-button" onClick={handleErrorClose} aria-label="Close">
               <CloseOutlined />
             </button>
           </div>
           <div className="modal-body error-body">
             <div className="error-content">
-              <ExclamationCircleOutlined className="error-icon" />
+              <div className="error-emblem" aria-hidden="true">
+                <ExclamationCircleOutlined />
+              </div>
               <p className="status-lead">{errorMessage}</p>
               <p>Please try again, or contact our support team if the problem persists.</p>
             </div>
@@ -1220,6 +1282,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
           <span className="sheet-grabber" aria-hidden="true" />
           <div className="modal-header">
             <div className="modal-heading">
+              <span className="modal-eyebrow">Learn French with Natives</span>
               <h2 id="demo-modal-title">Book a free demo</h2>
               <p className="modal-subtitle">Tell us what you are looking for. It takes two minutes.</p>
             </div>
@@ -1277,6 +1340,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
         <span className="sheet-grabber" aria-hidden="true" />
         <div className="modal-header">
           <div className="modal-heading">
+            <span className="modal-eyebrow">{isExam ? 'Exam preparation' : 'Free live demo'}</span>
             <h2 id="demo-modal-title">{isExam ? 'Exam preparation' : 'Book a free demo class'}</h2>
             <p className="modal-subtitle">
               {offerLabel ? offerLabel : isExam

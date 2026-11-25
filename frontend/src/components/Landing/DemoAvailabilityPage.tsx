@@ -15,6 +15,7 @@ type LinkStatus = 'loading' | 'pending' | 'submitted' | 'expired' | 'superseded'
 
 interface ProposedSlot {
   date: string;
+  end_date?: string | null;
   start: string;
   end: string;
 }
@@ -42,8 +43,9 @@ interface SlotDraft {
   end: dayjs.Dayjs | null;
 }
 
-interface DisplayOption {
-  index: number;
+interface DisplayDay {
+  key: string;
+  chipLabel: string;
   weekdayShort: string;
   dayNum: string;
   monthShort: string;
@@ -53,6 +55,15 @@ interface DisplayOption {
   localDate: string;
   localStart: string;
   localEnd: string;
+}
+
+interface DisplayGroup {
+  optionIndex: number;
+  isRange: boolean;
+  rangeTitle: string;
+  timeLabel: string;
+  originalLabel: string | null;
+  days: DisplayDay[];
 }
 
 function browserTimezone(): string {
@@ -128,22 +139,46 @@ function format12h(hm: string): string {
   return `${h12}:${m[2]} ${period}`;
 }
 
-function convertSlotForDisplay(slot: ProposedSlot, fromTz: string, toTz: string, index: number): DisplayOption {
-  const startUtc = zonedDateTimeToUtc(slot.date, slot.start, fromTz);
-  const endUtc = zonedDateTimeToUtc(slot.date, slot.end, fromTz);
+function expandIsoDates(startIso: string, endIso?: string | null): string[] {
+  const dmStart = /^(\d{4})-(\d{2})-(\d{2})$/.exec(startIso);
+  if (!dmStart) return [startIso];
+  if (!endIso || endIso <= startIso) return [startIso];
+  const dmEnd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(endIso);
+  if (!dmEnd) return [startIso];
+
+  const startMs = Date.UTC(Number(dmStart[1]), Number(dmStart[2]) - 1, Number(dmStart[3]));
+  const endMs = Date.UTC(Number(dmEnd[1]), Number(dmEnd[2]) - 1, Number(dmEnd[3]));
+  const out: string[] = [];
+  for (let ms = startMs, count = 0; ms <= endMs && count < 31; ms += 86400000, count += 1) {
+    out.push(new Date(ms).toISOString().slice(0, 10));
+  }
+  return out.length > 0 ? out : [startIso];
+}
+
+function convertDayForDisplay(
+  dateStr: string,
+  start: string,
+  end: string,
+  fromTz: string,
+  toTz: string,
+  key: string,
+): DisplayDay {
+  const startUtc = zonedDateTimeToUtc(dateStr, start, fromTz);
+  const endUtc = zonedDateTimeToUtc(dateStr, end, fromTz);
 
   if (!startUtc || !endUtc) {
     return {
-      index,
+      key,
+      chipLabel: dateStr,
       weekdayShort: 'DATE',
       dayNum: '--',
       monthShort: '',
-      fullDateLabel: slot.date,
-      timeLabel: `${slot.start} - ${slot.end}`,
+      fullDateLabel: dateStr,
+      timeLabel: `${start} - ${end}`,
       originalLabel: null,
-      localDate: slot.date,
-      localStart: slot.start,
-      localEnd: slot.end,
+      localDate: dateStr,
+      localStart: start,
+      localEnd: end,
     };
   }
 
@@ -155,6 +190,7 @@ function convertSlotForDisplay(slot: ProposedSlot, fromTz: string, toTz: string,
   let dayNum = startLocal.isoDate.slice(8, 10);
   let monthShort = '';
   let fullDateLabel = startLocal.isoDate;
+  let chipLabel = startLocal.isoDate;
   try {
     weekdayShort = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: toTz }).format(startUtc).toUpperCase();
     dayNum = new Intl.DateTimeFormat('en-US', { day: 'numeric', timeZone: toTz }).format(startUtc);
@@ -166,15 +202,22 @@ function convertSlotForDisplay(slot: ProposedSlot, fromTz: string, toTz: string,
       year: 'numeric',
       timeZone: toTz,
     }).format(startUtc);
-  } catch { /* fallback already populated */ }
+    chipLabel = new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      timeZone: toTz,
+    }).format(startUtc);
+  } catch { /* fallback already set */ }
 
   const timeLabel = `${format12h(startLocal.hm)} - ${format12h(endLocal.hm)}${crossesMidnight ? ' (+1 day)' : ''}`;
   const originalLabel = fromTz !== toTz
-    ? `${format12h(slot.start)} - ${format12h(slot.end)} (${fromTz.replace(/_/g, ' ')})`
+    ? `${format12h(start)} - ${format12h(end)} (${fromTz.replace(/_/g, ' ')})`
     : null;
 
   return {
-    index,
+    key,
+    chipLabel,
     weekdayShort,
     dayNum,
     monthShort,
@@ -194,7 +237,7 @@ const DemoAvailabilityPage: React.FC = () => {
   const [justSubmitted, setJustSubmitted] = useState(false);
 
   const [timezone, setTimezone] = useState(browserTimezone);
-  const [selectedProposedIdx, setSelectedProposedIdx] = useState<number[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [showCustomSlots, setShowCustomSlots] = useState(false);
   const [customSlots, setCustomSlots] = useState<SlotDraft[]>([
     { id: 1, date: null, start: dayjs('10:00', 'HH:mm'), end: dayjs('11:00', 'HH:mm') },
@@ -202,7 +245,7 @@ const DemoAvailabilityPage: React.FC = () => {
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [submittedSummary, setSubmittedSummary] = useState<ProposedSlot[]>([]);
+  const [submittedSummary, setSubmittedSummary] = useState<{ date: string; start: string; end: string }[]>([]);
 
   useEffect(() => {
     const prevTitle = document.title;
@@ -258,16 +301,45 @@ const DemoAvailabilityPage: React.FC = () => {
   }, [timezone]);
 
   const hasProposedOptions = !!(meta?.proposed_slots && meta.proposed_slots.length > 0);
-  const displayOptions = useMemo(() => {
+  const displayGroups: DisplayGroup[] = useMemo(() => {
     if (!meta?.proposed_slots || meta.proposed_slots.length === 0) return [];
     const fromTz = meta.proposed_timezone || 'UTC';
-    return meta.proposed_slots.map((sl, i) => convertSlotForDisplay(sl, fromTz, timezone, i));
+    return meta.proposed_slots.map((sl, optionIndex) => {
+      const dates = expandIsoDates(sl.date, sl.end_date);
+      const isRange = dates.length > 1;
+      const days = dates.map((d) =>
+        convertDayForDisplay(d, sl.start, sl.end, fromTz, timezone, `${optionIndex}:${d}`)
+      );
+      const firstDay = days[0];
+      const lastDay = days[days.length - 1];
+      const rangeTitle = isRange && firstDay && lastDay
+        ? `${firstDay.chipLabel} to ${lastDay.chipLabel}`
+        : (firstDay?.fullDateLabel || sl.date);
+      return {
+        optionIndex,
+        isRange,
+        rangeTitle,
+        timeLabel: firstDay?.timeLabel || `${sl.start} - ${sl.end}`,
+        originalLabel: firstDay?.originalLabel || null,
+        days,
+      };
+    });
   }, [meta?.proposed_slots, meta?.proposed_timezone, timezone]);
 
-  const toggleProposedOption = (idx: number) => {
+  const flatDayLookup = useMemo(() => {
+    const map = new Map<string, DisplayDay>();
+    for (const grp of displayGroups) {
+      for (const day of grp.days) {
+        map.set(day.key, day);
+      }
+    }
+    return map;
+  }, [displayGroups]);
+
+  const toggleDayKey = (key: string) => {
     setError(null);
-    setSelectedProposedIdx(prev => (
-      prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]
+    setSelectedKeys(prev => (
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
     ));
   };
 
@@ -313,17 +385,20 @@ const DemoAvailabilityPage: React.FC = () => {
     e.preventDefault();
     setError(null);
 
-    const payloadSlots: ProposedSlot[] = [];
+    const seen = new Set<string>();
+    const payloadSlots: { date: string; start: string; end: string }[] = [];
+    const pushUnique = (slot: { date: string; start: string; end: string }) => {
+      const k = `${slot.date}|${slot.start}|${slot.end}`;
+      if (seen.has(k)) return;
+      seen.add(k);
+      payloadSlots.push(slot);
+    };
 
     if (hasProposedOptions) {
-      for (const idx of selectedProposedIdx) {
-        const opt = displayOptions.find(o => o.index === idx);
-        if (opt) {
-          payloadSlots.push({
-            date: opt.localDate,
-            start: opt.localStart,
-            end: opt.localEnd,
-          });
+      for (const key of selectedKeys) {
+        const day = flatDayLookup.get(key);
+        if (day) {
+          pushUnique({ date: day.localDate, start: day.localStart, end: day.localEnd });
         }
       }
     }
@@ -343,12 +418,12 @@ const DemoAvailabilityPage: React.FC = () => {
           setError('Each time window end time must be after its start time.');
           return;
         }
-        payloadSlots.push({ date: s.date.format('YYYY-MM-DD'), start: startStr, end: endStr });
+        pushUnique({ date: s.date.format('YYYY-MM-DD'), start: startStr, end: endStr });
       }
     }
 
     if (payloadSlots.length === 0) {
-      setError('Please select at least one proposed option above, or suggest another time that fits your schedule.');
+      setError('Please select at least one day or option above, or suggest another time that fits your schedule.');
       return;
     }
 
@@ -441,7 +516,7 @@ const DemoAvailabilityPage: React.FC = () => {
                 <h1 className="dap-title">Hi {meta.first_name || 'there'}, choose a time that fits</h1>
                 <p className="dap-sub">
                   {hasProposedOptions
-                    ? 'Select one or more options below. Once you submit, an instructor will contact you with your confirmed meeting link.'
+                    ? 'Select one or more days or time options below. Once you submit, an instructor will contact you with your confirmed meeting link.'
                     : 'Share one or more date and time windows below. An instructor will confirm your session and email you the join link.'}
                 </p>
 
@@ -469,41 +544,79 @@ const DemoAvailabilityPage: React.FC = () => {
                   <div className="dap-section">
                     <div className="dap-sec-head">
                       <span>Proposed times (in {timezone.replace(/_/g, ' ')})</span>
-                      {selectedProposedIdx.length > 0 && (
+                      {selectedKeys.length > 0 && (
                         <strong className="dap-selected-count">
-                          {selectedProposedIdx.length} selected
+                          {selectedKeys.length} selected
                         </strong>
                       )}
                     </div>
 
                     <div className="dap-option-list" role="group" aria-label="Available demo session options">
-                      {displayOptions.map((opt) => {
-                        const checked = selectedProposedIdx.includes(opt.index);
+                      {displayGroups.map((grp) => {
+                        if (!grp.isRange && grp.days[0]) {
+                          const opt = grp.days[0];
+                          const checked = selectedKeys.includes(opt.key);
+                          return (
+                            <button
+                              key={opt.key}
+                              type="button"
+                              role="checkbox"
+                              aria-checked={checked}
+                              className={`dap-option${checked ? ' is-selected' : ''}`}
+                              onClick={() => toggleDayKey(opt.key)}
+                            >
+                              <span className="dap-cal-badge" aria-hidden="true">
+                                <em>{opt.weekdayShort}</em>
+                                <strong>{opt.dayNum}</strong>
+                                <span>{opt.monthShort}</span>
+                              </span>
+                              <span className="dap-opt-body">
+                                <strong>{opt.fullDateLabel}</strong>
+                                <span className="dap-opt-time">{opt.timeLabel}</span>
+                                {opt.originalLabel && (
+                                  <span className="dap-opt-orig">Originally {opt.originalLabel}</span>
+                                )}
+                              </span>
+                              <span className="dap-opt-check" aria-hidden="true">
+                                {checked ? <CheckOutlined /> : null}
+                              </span>
+                            </button>
+                          );
+                        }
+
                         return (
-                          <button
-                            key={opt.index}
-                            type="button"
-                            role="checkbox"
-                            aria-checked={checked}
-                            className={`dap-option${checked ? ' is-selected' : ''}`}
-                            onClick={() => toggleProposedOption(opt.index)}
-                          >
-                            <span className="dap-cal-badge" aria-hidden="true">
-                              <em>{opt.weekdayShort}</em>
-                              <strong>{opt.dayNum}</strong>
-                              <span>{opt.monthShort}</span>
-                            </span>
-                            <span className="dap-opt-body">
-                              <strong>{opt.fullDateLabel}</strong>
-                              <span className="dap-opt-time">{opt.timeLabel}</span>
-                              {opt.originalLabel && (
-                                <span className="dap-opt-orig">Originally {opt.originalLabel}</span>
-                              )}
-                            </span>
-                            <span className="dap-opt-check" aria-hidden="true">
-                              {checked ? <CheckOutlined /> : null}
-                            </span>
-                          </button>
+                          <div key={`range-${grp.optionIndex}`} className="dap-range-card">
+                            <div className="dap-range-head">
+                              <div>
+                                <strong>{grp.rangeTitle}</strong>
+                                <span className="dap-opt-time">{grp.timeLabel} daily</span>
+                                {grp.originalLabel && (
+                                  <span className="dap-opt-orig">Originally {grp.originalLabel}</span>
+                                )}
+                              </div>
+                              <span className="dap-range-hint">Select any day(s)</span>
+                            </div>
+                            <div className="dap-range-days">
+                              {grp.days.map((day) => {
+                                const checked = selectedKeys.includes(day.key);
+                                return (
+                                  <button
+                                    key={day.key}
+                                    type="button"
+                                    role="checkbox"
+                                    aria-checked={checked}
+                                    className={`dap-day-chip${checked ? ' is-selected' : ''}`}
+                                    onClick={() => toggleDayKey(day.key)}
+                                  >
+                                    <span className="dap-day-chip-box" aria-hidden="true">
+                                      {checked ? <CheckOutlined /> : null}
+                                    </span>
+                                    <span>{day.chipLabel}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                         );
                       })}
                     </div>
@@ -628,8 +741,8 @@ const DemoAvailabilityPage: React.FC = () => {
                   icon={<SendOutlined />}
                   style={{ marginTop: 18, height: 48, fontWeight: 600 }}
                 >
-                  {selectedProposedIdx.length > 0 && !showCustomSlots
-                    ? `Confirm ${selectedProposedIdx.length} ${selectedProposedIdx.length === 1 ? 'selected time' : 'selected times'}`
+                  {selectedKeys.length > 0 && !showCustomSlots
+                    ? `Confirm ${selectedKeys.length} ${selectedKeys.length === 1 ? 'selected time' : 'selected times'}`
                     : 'Send my availability'}
                 </Button>
               </form>

@@ -6,6 +6,7 @@ const {
     sendDemoScheduleNotificationToStudent,
     sendDemoScheduleNotificationToTeacher,
     sendDemoAvailabilityRequest,
+    sendDemoRequestConfirmation,
     sendPublicMeetingInvite,
 } = require('../emails/emailService');
 const { createBulkNotifications } = require('../services/notificationService');
@@ -207,6 +208,20 @@ router.post('/', [
         // Tell the administrators at once: a person waiting for an answer is
         // the one thing in this platform that goes stale by the hour.
         announceNewRequest(req, created).catch(e => console.error('Demo request alert failed:', e.message));
+
+        // Send an automatic confirmation email so the prospect knows we received
+        // their request and will reach out by WhatsApp or email.
+        sendDemoRequestConfirmation({
+            to: created.email,
+            fullName: created.full_name,
+            email: created.email,
+            phone: created.phone,
+            interest,
+            currentLevel: created.current_level,
+            interestedLevel: created.interested_level,
+            targetExam,
+            preferredSchedule: created.preferred_schedule,
+        }).catch(e => console.error('Demo request confirmation email failed:', e.message));
 
         res.status(201).json({
             success: true,
@@ -735,16 +750,28 @@ function sanitizeProposedSlots(rawSlots) {
     for (const item of rawSlots) {
         if (!item || typeof item !== 'object') return null;
         const date = String(item.date || '').trim();
+        const rawEndDate = item.end_date ? String(item.end_date).trim() : '';
+        const endDate = rawEndDate && rawEndDate !== date ? rawEndDate : null;
         const start = String(item.start || '').trim();
         const end = String(item.end || '').trim();
         if (!AVAIL_DATE_RE.test(date) || !AVAIL_TIME_RE.test(start) || !AVAIL_TIME_RE.test(end)) return null;
+        if (endDate) {
+            if (!AVAIL_DATE_RE.test(endDate) || endDate < date) return null;
+            const optSpan = (Date.parse(endDate) - Date.parse(date)) / 86400000;
+            if (optSpan > 31) return null;
+        }
         if (end <= start) return null;
-        const key = `${date}|${start}|${end}`;
+        const key = `${date}|${endDate || date}|${start}|${end}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        cleaned.push({ date, start, end });
+        cleaned.push(endDate ? { date, end_date: endDate, start, end } : { date, start, end });
     }
-    cleaned.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+    cleaned.sort((a, b) =>
+        a.date.localeCompare(b.date)
+        || (a.end_date || a.date).localeCompare(b.end_date || b.date)
+        || a.start.localeCompare(b.start)
+        || a.end.localeCompare(b.end)
+    );
     return cleaned.length > 0 ? cleaned : null;
 }
 
@@ -775,12 +802,14 @@ router.post('/:id/request-availability', authenticateToken, adminOnlyMw, async (
             if (!proposedSlots) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Please provide 1 to 15 valid date and time options (end time must be after start time).',
+                    message: 'Please provide 1 to 15 valid date/range and time options (end must be after start; per-option range up to 31 days).',
                 });
             }
-            const dates = proposedSlots.map(s => s.date);
-            startDate = dates[0];
-            endDate = dates[dates.length - 1];
+            startDate = proposedSlots.reduce((min, s) => (s.date < min ? s.date : min), proposedSlots[0].date);
+            endDate = proposedSlots.reduce((max, s) => {
+                const d = s.end_date || s.date;
+                return d > max ? d : max;
+            }, proposedSlots[0].end_date || proposedSlots[0].date);
             const spanDays = (Date.parse(endDate) - Date.parse(startDate)) / 86400000;
             if (spanDays > 90) {
                 return res.status(400).json({ success: false, message: 'Proposed dates cannot span more than 90 days.' });

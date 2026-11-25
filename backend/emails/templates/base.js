@@ -102,27 +102,52 @@ function detailCard({ title, rows }) {
 }
 
 /**
- * Format an availability option `{ date: 'YYYY-MM-DD', start: 'HH:mm', end: 'HH:mm' }`
- * into human-readable date and 12-hour time strings without timezone shift.
+ * Format an availability option `{ date: 'YYYY-MM-DD', end_date?: 'YYYY-MM-DD', start: 'HH:mm', end: 'HH:mm' }`
+ * into human-readable date (or range) and 12-hour time strings without timezone shift.
  */
 function formatSlotHuman(slot) {
     const dateStr = String(slot?.date || '').trim();
+    const endDateStr = String(slot?.end_date || '').trim();
     const startStr = String(slot?.start || '').trim();
     const endStr = String(slot?.end || '').trim();
 
-    let dateLabel = dateStr;
-    const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
-    if (dm) {
+    const formatIso = (iso, opts) => {
+        const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+        if (!dm) return { label: iso, year: null };
         const dt = new Date(Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), 12, 0, 0));
-        if (!Number.isNaN(dt.getTime())) {
-            dateLabel = new Intl.DateTimeFormat('en-US', {
-                weekday: 'long',
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-                timeZone: 'UTC',
-            }).format(dt);
-        }
+        if (Number.isNaN(dt.getTime())) return { label: iso, year: null };
+        return {
+            year: Number(dm[1]),
+            label: new Intl.DateTimeFormat('en-US', { ...opts, timeZone: 'UTC' }).format(dt),
+        };
+    };
+
+    const hasRange = Boolean(endDateStr && endDateStr !== dateStr);
+    let dateLabel;
+    if (hasRange) {
+        const startYear = Number(dateStr.slice(0, 4));
+        const endYear = Number(endDateStr.slice(0, 4));
+        const sameYear = startYear === endYear;
+        const startFmt = formatIso(dateStr, {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric',
+            ...(sameYear ? {} : { year: 'numeric' }),
+        });
+        const endFmt = formatIso(endDateStr, {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+        });
+        dateLabel = `${startFmt.label} to ${endFmt.label}`;
+    } else {
+        dateLabel = formatIso(dateStr, {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+        }).label;
     }
 
     const fmtHm = (hm) => {
@@ -135,9 +160,10 @@ function formatSlotHuman(slot) {
         return `${h12}:${min} ${period}`;
     };
 
+    const baseTime = startStr && endStr ? `${fmtHm(startStr)} - ${fmtHm(endStr)}` : (startStr || '');
     return {
         dateLabel,
-        timeLabel: startStr && endStr ? `${fmtHm(startStr)} - ${fmtHm(endStr)}` : (startStr || ''),
+        timeLabel: hasRange && baseTime ? `${baseTime} (daily)` : baseTime,
     };
 }
 

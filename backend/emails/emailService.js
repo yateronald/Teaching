@@ -20,6 +20,7 @@ const { buildMeetingScheduledTemplate } = require('./templates/meetingScheduled'
 const { buildDemoScheduleStudentTemplate } = require('./templates/demoScheduleStudent');
 const { buildDemoScheduleTeacherTemplate } = require('./templates/demoScheduleTeacher');
 const { buildDemoAvailabilityRequestTemplate } = require('./templates/demoAvailabilityRequest');
+const { buildDemoRequestReceivedTemplate } = require('./templates/demoRequestReceived');
 const { buildPublicMeetingInviteTemplate } = require('./templates/publicMeetingInvite');
 const { buildCompanyInviteTemplate, buildCompanyExpiryTemplate } = require('./templates/companyAccount');
 const { buildPromotionRegistrationTemplate } = require('./templates/promotionRegistration');
@@ -208,6 +209,15 @@ async function sendDemoAvailabilityRequest({
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }
 
+async function sendDemoRequestConfirmation({
+    to, fullName, email, phone, interest, currentLevel, interestedLevel, targetExam, preferredSchedule, supportEmail,
+}) {
+    const { subject, html, text } = buildDemoRequestReceivedTemplate({
+        fullName, email, phone, interest, currentLevel, interestedLevel, targetExam, preferredSchedule, supportEmail,
+    });
+    return sendEmail({ from: getFromEmail(), to, subject, html, text });
+}
+
 async function sendPublicMeetingInvite({
     to, recipientName, title, description, hostName, scheduledStart, scheduledEnd,
     recipientTimezone, meetingUrl, meetingCode, passcode, requireApproval, isDemo, notes, supportEmail,
@@ -286,6 +296,7 @@ module.exports = {
     sendDemoScheduleNotificationToStudent,
     sendDemoScheduleNotificationToTeacher,
     sendDemoAvailabilityRequest,
+    sendDemoRequestConfirmation,
     sendPublicMeetingInvite,
     sendAccessCodeEmail,
 };

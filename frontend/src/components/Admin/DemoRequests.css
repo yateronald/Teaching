@@ -365,23 +365,76 @@
 .dr-slots-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 14px;
 }
-.dr-slot-row {
-  display: grid;
-  grid-template-columns: minmax(150px, 1.4fr) minmax(90px, 1fr) minmax(90px, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 8px 10px;
+.dr-slot-card {
+  padding: 10px 12px 12px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
+}
+.dr-slot-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.dr-slot-idx {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.dr-slot-mode {
+  display: inline-flex;
+  background: #e2e8f0;
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
+}
+.dr-slot-mode button {
+  border: none;
+  background: transparent;
+  padding: 3px 9px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.dr-slot-mode button.is-on {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.dr-slot-fields {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.4fr) minmax(90px, 1fr) minmax(90px, 1fr);
+  gap: 8px;
+}
+.dr-slot-fields.is-range {
+  grid-template-columns: 1fr 1fr 0.85fr 0.85fr;
+}
+.dr-slot-field {
+  min-width: 0;
+}
+.dr-slot-field > span {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 4px;
 }
 .dr-slot-actions {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  margin-left: auto;
 }
 .dr-slot-error {
   margin: -4px 0 12px;
@@ -409,16 +462,14 @@
   border: 1px solid #e2e8f0;
   font-size: 12.5px;
   color: #1e293b;
+  flex-wrap: wrap;
 }
 @media (max-width: 600px) {
-  .dr-slot-row {
+  .dr-slot-fields,
+  .dr-slot-fields.is-range {
     grid-template-columns: 1fr 1fr;
   }
-  .dr-slot-row > :first-child {
+  .dr-slot-fields:not(.is-range) > :first-child {
     grid-column: 1 / -1;
-  }
-  .dr-slot-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-end;
   }
 }

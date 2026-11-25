@@ -56,7 +56,7 @@ void main() {
       expect(Demo.availabilityColor('superseded'), AppColors.warn);
     });
 
-    test('formatSlot formats date and window in EN and FR', () {
+    test('formatSlot formats single dates and date ranges in EN and FR', () {
       expect(
         Demo.formatSlot({'date': '2026-12-01', 'start': '10:00', 'end': '11:30'}),
         'Tue, Dec 1 · 10:00 - 11:30',
@@ -64,6 +64,14 @@ void main() {
       expect(
         Demo.formatSlot({'date': '2026-12-01', 'start': '10:00', 'end': '11:30'}, fr: true),
         'Mar 1 déc. · 10:00 - 11:30',
+      );
+      expect(
+        Demo.formatSlot({'date': '2026-11-30', 'end_date': '2026-12-01', 'start': '12:00', 'end': '13:00'}),
+        'Mon, Nov 30 to Tue, Dec 1 · 12:00 - 13:00',
+      );
+      expect(
+        Demo.formatSlot({'date': '2026-11-30', 'end_date': '2026-12-01', 'start': '12:00', 'end': '13:00'}, fr: true),
+        'Lun 30 nov. au Mar 1 déc. · 12:00 - 13:00',
       );
     });
 

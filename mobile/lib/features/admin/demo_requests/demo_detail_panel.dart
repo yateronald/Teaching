@@ -837,12 +837,14 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
 
 class _ProposedSlot {
   DateTime date;
+  DateTime? endDate;
   TimeOfDay start;
   TimeOfDay end;
-  _ProposedSlot({required this.date, required this.start, required this.end});
+  _ProposedSlot({required this.date, this.endDate, required this.start, required this.end});
+  bool get isRange => endDate != null;
 }
 
-/// Asks the prospect for their availability by proposing one or more flexible date/time options.
+/// Asks the prospect for their availability by proposing one or more flexible single-day or date-range options.
 class _AskAvailabilityForm extends ConsumerStatefulWidget {
   final Map<String, dynamic> request;
   const _AskAvailabilityForm({required this.request});
@@ -878,10 +880,11 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
   void _addOption() {
     if (_slots.length >= 15) return;
     final last = _slots.last;
+    final anchor = last.endDate ?? last.date;
     setState(() {
       _error = null;
       _slots.add(_ProposedSlot(
-        date: last.date.add(const Duration(days: 1)),
+        date: anchor.add(const Duration(days: 1)),
         start: last.start,
         end: last.end,
       ));
@@ -898,10 +901,25 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
         index + 1,
         _ProposedSlot(
           date: src.date,
+          endDate: src.endDate,
           start: canShift ? TimeOfDay(hour: src.start.hour + 1, minute: src.start.minute) : src.start,
           end: canShift ? TimeOfDay(hour: src.end.hour + 1, minute: src.end.minute) : src.end,
         ),
       );
+    });
+  }
+
+  void _setRangeMode(int index, bool range) {
+    final sl = _slots[index];
+    setState(() {
+      _error = null;
+      if (range) {
+        sl.endDate = (sl.endDate != null && !sl.endDate!.isBefore(sl.date))
+            ? sl.endDate
+            : sl.date.add(const Duration(days: 1));
+      } else {
+        sl.endDate = null;
+      }
     });
   }
 
@@ -910,13 +928,32 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
     final payload = <Map<String, String>>[];
     for (var i = 0; i < _slots.length; i++) {
       final sl = _slots[i];
+      final dateStr = _isoDate(sl.date);
+      String? endDateStr;
+      if (sl.endDate != null) {
+        final cand = _isoDate(sl.endDate!);
+        if (cand.compareTo(dateStr) < 0) {
+          setState(() => _error = fr ? 'Option #${i + 1} : la date de fin doit suivre le début.' : 'Option #${i + 1}: end date must be on or after start date.');
+          return;
+        }
+        if (sl.endDate!.difference(sl.date).inDays > 31) {
+          setState(() => _error = fr ? 'Option #${i + 1} : maximum 31 jours par plage.' : 'Option #${i + 1}: maximum 31 days per date range.');
+          return;
+        }
+        if (cand != dateStr) endDateStr = cand;
+      }
       final s = _hm(sl.start);
       final e = _hm(sl.end);
       if (e.compareTo(s) <= 0) {
         setState(() => _error = fr ? 'Option #${i + 1} : l’heure de fin doit suivre le début.' : 'Option #${i + 1}: end time must be after start time.');
         return;
       }
-      payload.add({'date': _isoDate(sl.date), 'start': s, 'end': e});
+      payload.add({
+        'date': dateStr,
+        'end_date': ?endDateStr,
+        'start': s,
+        'end': e,
+      });
     }
     setState(() { _sending = true; _error = null; });
     try {
@@ -985,6 +1022,21 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
                           style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, color: AppColors.adminAccent),
                         ),
                       ),
+                      ChoiceChip(
+                        label: Text(fr ? 'Un jour' : 'Single day'),
+                        selected: !_slots[i].isRange,
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        onSelected: (_) => _setRangeMode(i, false),
+                      ),
+                      const SizedBox(width: 6),
+                      ChoiceChip(
+                        label: Text(fr ? 'Plage' : 'Date range'),
+                        selected: _slots[i].isRange,
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        onSelected: (_) => _setRangeMode(i, true),
+                      ),
                       if (_slots.length < 15)
                         IconButton(
                           tooltip: fr ? 'Dupliquer' : 'Duplicate',
@@ -1001,22 +1053,73 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
                         ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  InkWell(
-                    onTap: () async {
-                      final d = await showDatePicker(
-                        context: context,
-                        initialDate: _slots[i].date,
-                        firstDate: DateTime.now(),
-                        lastDate: DateTime.now().add(const Duration(days: 90)),
-                      );
-                      if (d != null) setState(() { _error = null; _slots[i].date = d; });
-                    },
-                    child: InputDecorator(
-                      decoration: adminInputDecoration(fr ? 'Date' : 'Date', suffix: const Icon(Icons.calendar_today_outlined, size: 16)),
-                      child: Text(AdminFmt.weekdayDay(context, _slots[i].date)),
+                  const SizedBox(height: 8),
+                  if (!_slots[i].isRange)
+                    InkWell(
+                      onTap: () async {
+                        final d = await showDatePicker(
+                          context: context,
+                          initialDate: _slots[i].date,
+                          firstDate: DateTime.now(),
+                          lastDate: DateTime.now().add(const Duration(days: 90)),
+                        );
+                        if (d != null) setState(() { _error = null; _slots[i].date = d; });
+                      },
+                      child: InputDecorator(
+                        decoration: adminInputDecoration(fr ? 'Date' : 'Date', suffix: const Icon(Icons.calendar_today_outlined, size: 16)),
+                        child: Text(AdminFmt.weekdayDay(context, _slots[i].date)),
+                      ),
+                    )
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () async {
+                              final d = await showDatePicker(
+                                context: context,
+                                initialDate: _slots[i].date,
+                                firstDate: DateTime.now(),
+                                lastDate: DateTime.now().add(const Duration(days: 90)),
+                              );
+                              if (d != null) {
+                                setState(() {
+                                  _error = null;
+                                  _slots[i].date = d;
+                                  if (_slots[i].endDate == null || _slots[i].endDate!.isBefore(d)) {
+                                    _slots[i].endDate = d.add(const Duration(days: 1));
+                                  }
+                                });
+                              }
+                            },
+                            child: InputDecorator(
+                              decoration: adminInputDecoration(fr ? 'Du' : 'From date'),
+                              child: Text(AdminFmt.weekdayDay(context, _slots[i].date)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () async {
+                              final start = _slots[i].date;
+                              final curEnd = _slots[i].endDate ?? start.add(const Duration(days: 1));
+                              final d = await showDatePicker(
+                                context: context,
+                                initialDate: curEnd.isBefore(start) ? start : curEnd,
+                                firstDate: start,
+                                lastDate: start.add(const Duration(days: 31)),
+                              );
+                              if (d != null) setState(() { _error = null; _slots[i].endDate = d; });
+                            },
+                            child: InputDecorator(
+                              decoration: adminInputDecoration(fr ? 'Au' : 'To date'),
+                              child: Text(AdminFmt.weekdayDay(context, _slots[i].endDate ?? _slots[i].date)),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -1027,7 +1130,7 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
                             if (t != null) setState(() { _error = null; _slots[i].start = t; });
                           },
                           child: InputDecorator(
-                            decoration: adminInputDecoration(fr ? 'Début' : 'From'),
+                            decoration: adminInputDecoration(fr ? (_slots[i].isRange ? 'De (chaque jour)' : 'Début') : (_slots[i].isRange ? 'Daily from' : 'From')),
                             child: Text(_hm(_slots[i].start)),
                           ),
                         ),
@@ -1040,7 +1143,7 @@ class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
                             if (t != null) setState(() { _error = null; _slots[i].end = t; });
                           },
                           child: InputDecorator(
-                            decoration: adminInputDecoration(fr ? 'Fin' : 'To'),
+                            decoration: adminInputDecoration(fr ? (_slots[i].isRange ? 'À (chaque jour)' : 'Fin') : (_slots[i].isRange ? 'Daily until' : 'To')),
                             child: Text(_hm(_slots[i].end)),
                           ),
                         ),

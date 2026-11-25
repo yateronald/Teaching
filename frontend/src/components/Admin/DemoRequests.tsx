@@ -27,6 +27,7 @@ type Status = 'new' | 'contacted' | 'demo_scheduled' | 'completed' | 'cancelled'
 
 interface AvailabilitySlot {
   date: string;
+  end_date?: string | null;
   start: string;
   end: string;
 }
@@ -50,7 +51,9 @@ interface AvailabilityRequest {
 
 interface ProposedSlotDraft {
   id: number;
+  isRange: boolean;
   date: Dayjs | null;
+  endDate: Dayjs | null;
   start: Dayjs | null;
   end: Dayjs | null;
 }
@@ -330,7 +333,7 @@ const DemoRequests: React.FC = () => {
     });
     const baseDay = dayjs().add(1, 'day');
     setProposedSlots([
-      { id: Date.now(), date: baseDay, start: dayjs('10:00', 'HH:mm'), end: dayjs('11:00', 'HH:mm') },
+      { id: Date.now(), isRange: false, date: baseDay, endDate: null, start: dayjs('10:00', 'HH:mm'), end: dayjs('11:00', 'HH:mm') },
     ]);
   };
 
@@ -338,12 +341,15 @@ const DemoRequests: React.FC = () => {
     if (proposedSlots.length >= 15) return;
     setAvailError(null);
     const last = proposedSlots[proposedSlots.length - 1];
-    const nextDate = last?.date ? last.date.add(1, 'day') : dayjs().add(1, 'day');
+    const anchor = last?.isRange && last?.endDate ? last.endDate : last?.date;
+    const nextDate = anchor ? anchor.add(1, 'day') : dayjs().add(1, 'day');
     setProposedSlots(prev => [
       ...prev,
       {
         id: Date.now() + prev.length + 1,
+        isRange: false,
         date: nextDate,
+        endDate: null,
         start: last?.start || dayjs('10:00', 'HH:mm'),
         end: last?.end || dayjs('11:00', 'HH:mm'),
       },
@@ -358,7 +364,9 @@ const DemoRequests: React.FC = () => {
     const canShift = src.start && src.end && src.end.hour() < 22;
     const nextSlot: ProposedSlotDraft = {
       id: Date.now() + proposedSlots.length + 7,
+      isRange: src.isRange,
       date: src.date,
+      endDate: src.endDate,
       start: canShift ? src.start!.add(1, 'hour') : src.start,
       end: canShift ? src.end!.add(1, 'hour') : src.end,
     };
@@ -372,6 +380,18 @@ const DemoRequests: React.FC = () => {
   const updateProposedSlot = (id: number, patch: Partial<ProposedSlotDraft>) => {
     setAvailError(null);
     setProposedSlots(prev => prev.map(s => (s.id === id ? { ...s, ...patch } : s)));
+  };
+
+  const toggleProposedSlotMode = (id: number, nextIsRange: boolean) => {
+    setAvailError(null);
+    setProposedSlots(prev => prev.map(s => {
+      if (s.id !== id) return s;
+      const start = s.date || dayjs().add(1, 'day');
+      const nextEnd = nextIsRange
+        ? (s.endDate && !s.endDate.isBefore(start, 'day') ? s.endDate : start.add(1, 'day'))
+        : null;
+      return { ...s, isRange: nextIsRange, date: start, endDate: nextEnd };
+    }));
   };
 
   const removeProposedSlot = (id: number) => {
@@ -392,9 +412,23 @@ const DemoRequests: React.FC = () => {
     const payloadSlots: AvailabilitySlot[] = [];
     for (let i = 0; i < proposedSlots.length; i += 1) {
       const s = proposedSlots[i];
-      if (!s.date || !s.start || !s.end) {
-        setAvailError(`Option #${i + 1} needs a date, start time, and end time.`);
+      if (!s.date || !s.start || !s.end || (s.isRange && !s.endDate)) {
+        setAvailError(`Option #${i + 1} needs a complete ${s.isRange ? 'date range' : 'date'} and start/end times.`);
         return;
+      }
+      const dateStr = s.date.format('YYYY-MM-DD');
+      let endDateStr: string | undefined;
+      if (s.isRange && s.endDate) {
+        if (s.endDate.isBefore(s.date, 'day')) {
+          setAvailError(`Option #${i + 1}: end date must be on or after start date.`);
+          return;
+        }
+        if (s.endDate.diff(s.date, 'day') > 31) {
+          setAvailError(`Option #${i + 1}: each date range can cover up to 31 days.`);
+          return;
+        }
+        const cand = s.endDate.format('YYYY-MM-DD');
+        if (cand !== dateStr) endDateStr = cand;
       }
       const start = s.start.format('HH:mm');
       const end = s.end.format('HH:mm');
@@ -402,7 +436,7 @@ const DemoRequests: React.FC = () => {
         setAvailError(`Option #${i + 1}: end time must be after start time.`);
         return;
       }
-      payloadSlots.push({ date: s.date.format('YYYY-MM-DD'), start, end });
+      payloadSlots.push({ date: dateStr, ...(endDateStr ? { end_date: endDateStr } : {}), start, end });
     }
     setAvailError(null);
     setSendingAvail(true);
@@ -1043,8 +1077,12 @@ const DemoRequests: React.FC = () => {
                       <div className="dr-proposed-list">
                         {d.latest_availability.proposed_slots.map((sl, idx) => (
                           <div key={idx} className="dr-proposed-item">
-                            <strong>{dayjs(sl.date).format('ddd, MMM D, YYYY')}</strong>
-                            <span>{sl.start} - {sl.end}</span>
+                            <strong>
+                              {sl.end_date && sl.end_date !== sl.date
+                                ? `${dayjs(sl.date).format('ddd, MMM D')} to ${dayjs(sl.end_date).format('ddd, MMM D, YYYY')}`
+                                : dayjs(sl.date).format('ddd, MMM D, YYYY')}
+                            </strong>
+                            <span>{sl.start} - {sl.end}{sl.end_date && sl.end_date !== sl.date ? ' (daily)' : ''}</span>
                           </div>
                         ))}
                       </div>
@@ -1125,7 +1163,7 @@ const DemoRequests: React.FC = () => {
           open={!!availFor}
           onCancel={() => !sendingAvail && setAvailFor(null)}
           footer={null}
-          width={600}
+          width={640}
           centered
           className="dr-modal"
           maskClosable={!sendingAvail}
@@ -1155,7 +1193,7 @@ const DemoRequests: React.FC = () => {
 
               <div className="dr-slots-head">
                 <span className="dr-slots-label">
-                  Proposed date &amp; time options
+                  Proposed date or range options
                   <span className="dr-slots-count">{proposedSlots.length}/15</span>
                 </span>
                 {proposedSlots.length < 15 && (
@@ -1167,56 +1205,112 @@ const DemoRequests: React.FC = () => {
 
               <div className="dr-slots-list">
                 {proposedSlots.map((slot, idx) => (
-                  <div key={slot.id} className="dr-slot-row">
-                    <DatePicker
-                      value={slot.date}
-                      format="ddd, MMM D, YYYY"
-                      placeholder="Select date"
-                      allowClear={false}
-                      disabledDate={dt => dt.isBefore(dayjs().startOf('day'))}
-                      onChange={d => updateProposedSlot(slot.id, { date: d })}
-                      style={{ width: '100%' }}
-                    />
-                    <TimePicker
-                      value={slot.start}
-                      format="HH:mm"
-                      minuteStep={15}
-                      placeholder="From"
-                      allowClear={false}
-                      onChange={t => updateProposedSlot(slot.id, { start: t })}
-                      style={{ width: '100%' }}
-                    />
-                    <TimePicker
-                      value={slot.end}
-                      format="HH:mm"
-                      minuteStep={15}
-                      placeholder="To"
-                      allowClear={false}
-                      onChange={t => updateProposedSlot(slot.id, { end: t })}
-                      style={{ width: '100%' }}
-                    />
-                    <div className="dr-slot-actions">
-                      <Tooltip title="Add another time on this day">
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<CopyOutlined />}
-                          disabled={proposedSlots.length >= 15}
-                          onClick={() => duplicateProposedSlot(idx)}
-                          aria-label={`Duplicate option ${idx + 1}`}
+                  <div key={slot.id} className="dr-slot-card">
+                    <div className="dr-slot-card-head">
+                      <span className="dr-slot-idx">Option {idx + 1}</span>
+                      <div className="dr-slot-mode" role="group" aria-label={`Option ${idx + 1} date mode`}>
+                        <button
+                          type="button"
+                          className={!slot.isRange ? 'is-on' : ''}
+                          onClick={() => toggleProposedSlotMode(slot.id, false)}
+                        >
+                          Single day
+                        </button>
+                        <button
+                          type="button"
+                          className={slot.isRange ? 'is-on' : ''}
+                          onClick={() => toggleProposedSlotMode(slot.id, true)}
+                        >
+                          Date range
+                        </button>
+                      </div>
+                      <div className="dr-slot-actions">
+                        <Tooltip title="Duplicate option">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<CopyOutlined />}
+                            disabled={proposedSlots.length >= 15}
+                            onClick={() => duplicateProposedSlot(idx)}
+                            aria-label={`Duplicate option ${idx + 1}`}
+                          />
+                        </Tooltip>
+                        <Tooltip title="Remove option">
+                          <Button
+                            danger
+                            type="text"
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            disabled={proposedSlots.length <= 1}
+                            onClick={() => removeProposedSlot(slot.id)}
+                            aria-label={`Remove option ${idx + 1}`}
+                          />
+                        </Tooltip>
+                      </div>
+                    </div>
+
+                    <div className={`dr-slot-fields${slot.isRange ? ' is-range' : ''}`}>
+                      <div className="dr-slot-field">
+                        <span>{slot.isRange ? 'From date' : 'Date'}</span>
+                        <DatePicker
+                          value={slot.date}
+                          format="ddd, MMM D, YYYY"
+                          placeholder="Select date"
+                          allowClear={false}
+                          disabledDate={dt => dt.isBefore(dayjs().startOf('day'))}
+                          onChange={d => {
+                            const fixEnd = slot.isRange && d && slot.endDate && slot.endDate.isBefore(d, 'day')
+                              ? d.add(1, 'day')
+                              : slot.endDate;
+                            updateProposedSlot(slot.id, { date: d, ...(slot.isRange ? { endDate: fixEnd } : {}) });
+                          }}
+                          style={{ width: '100%' }}
                         />
-                      </Tooltip>
-                      <Tooltip title="Remove option">
-                        <Button
-                          danger
-                          type="text"
-                          size="small"
-                          icon={<DeleteOutlined />}
-                          disabled={proposedSlots.length <= 1}
-                          onClick={() => removeProposedSlot(slot.id)}
-                          aria-label={`Remove option ${idx + 1}`}
+                      </div>
+
+                      {slot.isRange && (
+                        <div className="dr-slot-field">
+                          <span>To date</span>
+                          <DatePicker
+                            value={slot.endDate}
+                            format="ddd, MMM D, YYYY"
+                            placeholder="End date"
+                            allowClear={false}
+                            disabledDate={dt => {
+                              const min = slot.date ? slot.date.startOf('day') : dayjs().startOf('day');
+                              return dt.isBefore(min) || dt.isAfter(min.add(31, 'day'));
+                            }}
+                            onChange={d => updateProposedSlot(slot.id, { endDate: d })}
+                            style={{ width: '100%' }}
+                          />
+                        </div>
+                      )}
+
+                      <div className="dr-slot-field">
+                        <span>{slot.isRange ? 'Daily from' : 'From'}</span>
+                        <TimePicker
+                          value={slot.start}
+                          format="HH:mm"
+                          minuteStep={15}
+                          placeholder="From"
+                          allowClear={false}
+                          onChange={t => updateProposedSlot(slot.id, { start: t })}
+                          style={{ width: '100%' }}
                         />
-                      </Tooltip>
+                      </div>
+
+                      <div className="dr-slot-field">
+                        <span>{slot.isRange ? 'Daily until' : 'To'}</span>
+                        <TimePicker
+                          value={slot.end}
+                          format="HH:mm"
+                          minuteStep={15}
+                          placeholder="To"
+                          allowClear={false}
+                          onChange={t => updateProposedSlot(slot.id, { end: t })}
+                          style={{ width: '100%' }}
+                        />
+                      </div>
                     </div>
                   </div>
                 ))}

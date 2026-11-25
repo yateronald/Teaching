@@ -114,19 +114,26 @@ class Demo {
 
   static String formatSlot(Map<String, dynamic> slot, {bool fr = false}) {
     final d = J.s(slot['date']);
+    final ed = J.s(slot['end_date']);
     final s = J.s(slot['start']);
     final e = J.s(slot['end']);
-    final parsed = DateTime.tryParse(d);
-    String dateLabel = d;
-    if (parsed != null) {
+
+    String fmtIso(String iso) {
+      final parsed = DateTime.tryParse(iso);
+      if (parsed == null) return iso;
       const wdEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       const wdFr = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
       const moEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const moFr = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
       final wd = (fr ? wdFr : wdEn)[parsed.weekday - 1];
       final mo = (fr ? moFr : moEn)[parsed.month - 1];
-      dateLabel = fr ? '$wd ${parsed.day} $mo' : '$wd, $mo ${parsed.day}';
+      return fr ? '$wd ${parsed.day} $mo' : '$wd, $mo ${parsed.day}';
     }
+
+    final hasRange = ed.isNotEmpty && ed != d;
+    final dateLabel = hasRange
+        ? '${fmtIso(d)} ${fr ? 'au' : 'to'} ${fmtIso(ed)}'
+        : fmtIso(d);
     return '$dateLabel · $s - $e';
   }
 

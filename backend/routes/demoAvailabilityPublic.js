@@ -52,7 +52,7 @@ function isValidTimezone(tz) {
     }
 }
 
-function sanitizeSlots(rawSlots, max = 10) {
+function sanitizeSlots(rawSlots, max = 10, { allowRange = false } = {}) {
     if (!Array.isArray(rawSlots) || rawSlots.length === 0 || rawSlots.length > max) {
         return null;
     }
@@ -60,11 +60,17 @@ function sanitizeSlots(rawSlots, max = 10) {
     for (const item of rawSlots) {
         if (!item || typeof item !== 'object') return null;
         const date = String(item.date || '').trim();
+        const rawEndDate = allowRange && item.end_date ? String(item.end_date).trim() : '';
+        const endDate = rawEndDate && rawEndDate !== date ? rawEndDate : null;
         const start = String(item.start || '').trim();
         const end = String(item.end || '').trim();
         if (!DATE_RE.test(date) || !TIME_RE.test(start) || !TIME_RE.test(end)) return null;
+        if (endDate) {
+            if (!DATE_RE.test(endDate) || endDate < date) return null;
+            if ((Date.parse(endDate) - Date.parse(date)) / 86400000 > 31) return null;
+        }
         if (end <= start) return null;
-        cleaned.push({ date, start, end });
+        cleaned.push(endDate ? { date, end_date: endDate, start, end } : { date, start, end });
     }
     return cleaned;
 }
@@ -76,7 +82,7 @@ function extractProposedSlots(row) {
             ? row.proposed_days.slots
             : null);
     if (!raw || raw.length === 0) return null;
-    return sanitizeSlots(raw, 15);
+    return sanitizeSlots(raw, 15, { allowRange: true });
 }
 
 /**
