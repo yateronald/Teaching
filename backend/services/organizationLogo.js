@@ -27,6 +27,11 @@ const uploadCover = multer({
     limits: { fileSize: MAX_COVER_BYTES + 1, files: 1, fields: 1, fieldSize: 256 * 1024 },
 });
 
+const uploadCreateAssets = multer({
+    dest: os.tmpdir(),
+    limits: { fileSize: MAX_COVER_BYTES + 1, files: 2, fields: 2, fieldSize: 512 * 1024 },
+});
+
 /** The image type from the first bytes of the file, or null. */
 function sniff(buffer) {
     if (!buffer || buffer.length < 3) return null;
@@ -54,6 +59,20 @@ function receiveCover(req, res, next) {
         if (err) {
             const tooBig = err.code === 'LIMIT_FILE_SIZE';
             return res.status(400).json({ error: tooBig ? 'The cover image must be 2 MB or less.' : 'The cover image could not be read.', code: tooBig ? 'COVER_TOO_BIG' : 'COVER_UNREADABLE' });
+        }
+        next();
+    });
+}
+
+/** Express middleware for company creation: optional "logo" (<= 1 MB) and/or "cover" (<= 2 MB). */
+function receiveCreateAssets(req, res, next) {
+    uploadCreateAssets.fields([{ name: 'logo', maxCount: 1 }, { name: 'cover', maxCount: 1 }])(req, res, (err) => {
+        if (err) {
+            const tooBig = err.code === 'LIMIT_FILE_SIZE';
+            return res.status(400).json({
+                error: tooBig ? 'Uploaded images must be 2 MB or less (1 MB max for logos).' : 'Uploaded image could not be read.',
+                code: tooBig ? 'FILE_TOO_BIG' : 'FILE_UNREADABLE',
+            });
         }
         next();
     });
@@ -224,7 +243,7 @@ async function loadCover(db, slug) {
 
 module.exports = {
     MAX_LOGO_BYTES, MAX_COVER_BYTES,
-    sniff, receive, receiveCover,
+    sniff, receive, receiveCover, receiveCreateAssets,
     saveLogo, saveCover,
     removeLogo, removeCover,
     loadLogo, loadCover,

@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons';
 import { apiAsset } from '../../utils/apiAsset';
 import { ASSET_PATHS } from '../../utils/assets';
+import { HeroRichContent } from '../../utils/heroRichText';
 import { normalizePortalBranding, portalCssVars } from '../../utils/portalTheme';
 import type { PortalBranding } from '../../utils/portalTheme';
 import { emailStepFor, welcomeFor } from './signInAudience';
@@ -63,7 +64,12 @@ export const CompanyLoginShell: React.FC<CompanyLoginShellProps> = ({
     ? coverUrlOverride
     : (company.cover_url ? apiAsset(company.cover_url) : null);
 
-  const effectiveHeroStyle = branding.hero_style === 'cover' && !coverSrc
+  const hasCover = !!coverSrc;
+  const placement = branding.cover_placement || 'hero';
+  const isFullBg = hasCover && placement === 'full';
+  const isHeroBg = hasCover && placement === 'hero' && branding.hero_style === 'cover';
+  const isCardImg = hasCover && placement === 'card';
+  const effectiveHeroStyle = branding.hero_style === 'cover' && !isHeroBg
     ? 'geometric'
     : branding.hero_style;
 
@@ -72,6 +78,7 @@ export const CompanyLoginShell: React.FC<CompanyLoginShellProps> = ({
   const cardHead = step === 'password' ? welcome : emailStep;
   const tagline = branding.tagline || (audience === 'company_manager' ? tr('Company space', 'Espace entreprise') : tr('Exam preparation', 'Préparation aux examens'));
   const footerCopy = branding.footer_text || `© ${new Date().getFullYear()} ${company.name}`;
+  const hasHeroBody = branding.hero_body.trim().length > 0;
 
   const [langOpen, setLangOpen] = useState(false);
   const langRef = useRef<HTMLDivElement | null>(null);
@@ -255,20 +262,35 @@ export const CompanyLoginShell: React.FC<CompanyLoginShellProps> = ({
 
   const heroLayer = (
     <>
-      <div
-        className={`cp-hero-bg cp-hero-bg--${effectiveHeroStyle}`}
-        style={effectiveHeroStyle === 'cover' && coverSrc ? { backgroundImage: `url("${coverSrc}")` } : undefined}
-        aria-hidden="true"
-      />
+      <div className={`cp-hero-bg cp-hero-bg--${effectiveHeroStyle}`} aria-hidden="true" />
+      {isHeroBg && coverSrc && (
+        <div className="cp-hero-img" style={{ backgroundImage: `url("${coverSrc}")` }} aria-hidden="true" />
+      )}
       <div className="cp-hero-scrim" aria-hidden="true" />
       <div className="cp-hero-mesh" aria-hidden="true" />
     </>
   );
 
+  const fullBgLayer = isFullBg && coverSrc ? (
+    <div className="cp-full-bg-wrap" aria-hidden="true">
+      <div className="cp-full-bg-base" />
+      <div className="cp-full-bg-img" style={{ backgroundImage: `url("${coverSrc}")` }} />
+      <div className="cp-full-bg-scrim" />
+    </div>
+  ) : null;
+
+  const featureCardNode = (extraClass = '') => (isCardImg && coverSrc ? (
+    <div className={`cp-feature-card ${extraClass}`}>
+      <img src={coverSrc} alt="" />
+    </div>
+  ) : null);
+
   const rootClass = [
     'cp-login',
     `cp-layout--${branding.login_layout}`,
     `cp-hero-style--${effectiveHeroStyle}`,
+    isFullBg ? 'cp-cover-full' : '',
+    hasHeroBody ? 'cp-has-hero-body' : '',
     forceViewport === 'desktop' ? 'cp-force-desktop' : '',
     forceViewport === 'mobile' ? 'cp-force-mobile' : '',
     previewMode ? 'cp-is-preview' : '',
@@ -277,29 +299,33 @@ export const CompanyLoginShell: React.FC<CompanyLoginShellProps> = ({
   if (branding.login_layout === 'centered') {
     return (
       <div className={rootClass} style={cssVars}>
-        <div className="cp-centered-backdrop">
-          {heroLayer}
-        </div>
-        <header className="cp-centered-top">
-          <div className="cp-brand-lockup">
-            {renderMark('cp-mark--hero')}
-            <div className="cp-brand-copy">
-              <strong>{company.name}</strong>
-              <span>{tagline}</span>
+        {fullBgLayer}
+        <div className={`cp-centered-hero${isFullBg ? ' is-transparent' : ''}`}>
+          {!isFullBg && heroLayer}
+          <header className="cp-centered-top">
+            <div className="cp-brand-lockup">
+              {renderMark('cp-mark--hero')}
+              <div className="cp-brand-copy">
+                <strong>{company.name}</strong>
+                <span>{tagline}</span>
+              </div>
             </div>
-          </div>
-          {renderTopActions()}
-        </header>
+            {renderTopActions()}
+          </header>
 
-        <main className="cp-centered-main">
           <div className="cp-centered-intro">
+            {featureCardNode('cp-feature-card--centered')}
             <h1 className="cp-centered-headline">{welcome.side.title}</h1>
+            {hasHeroBody && <HeroRichContent text={branding.hero_body} tone="light" align="center" />}
             {branding.show_highlights && welcome.side.chips.length > 0 && (
               <div className="cp-chips cp-chips--centered">
                 {welcome.side.chips.map(ch => <span key={ch}>{ch}</span>)}
               </div>
             )}
           </div>
+        </div>
+
+        <main className="cp-centered-main">
           {renderFormArea()}
           {renderFooter()}
         </main>
@@ -308,28 +334,59 @@ export const CompanyLoginShell: React.FC<CompanyLoginShellProps> = ({
   }
 
   if (branding.login_layout === 'minimal') {
+    const lightText = isFullBg || isHeroBg;
     return (
       <div className={rootClass} style={cssVars}>
-        <header className="cp-minimal-top">
-          <div className="cp-brand-lockup is-dark">
-            {renderMark('cp-mark--minimal')}
-            <div className="cp-brand-copy is-dark">
-              <strong>{company.name}</strong>
-              <span>{tagline}</span>
+        {fullBgLayer}
+        {isHeroBg ? (
+          <div className="cp-minimal-banner">
+            {heroLayer}
+            <header className="cp-minimal-top">
+              <div className="cp-brand-lockup">
+                {renderMark('cp-mark--hero')}
+                <div className="cp-brand-copy">
+                  <strong>{company.name}</strong>
+                  <span>{tagline}</span>
+                </div>
+              </div>
+              {renderTopActions()}
+            </header>
+            <div className="cp-minimal-header is-on-banner">
+              <h1 className="cp-minimal-headline is-light">{welcome.side.title}</h1>
+              {hasHeroBody && <HeroRichContent text={branding.hero_body} tone="light" align="center" />}
+              {branding.show_highlights && welcome.side.chips.length > 0 && (
+                <div className="cp-chips cp-chips--centered">
+                  {welcome.side.chips.map(ch => <span key={ch}>{ch}</span>)}
+                </div>
+              )}
             </div>
           </div>
-          {renderTopActions()}
-        </header>
-
-        <main className="cp-minimal-main">
-          <div className="cp-minimal-header">
-            <h1 className="cp-minimal-headline">{welcome.side.title}</h1>
-            {branding.show_highlights && welcome.side.chips.length > 0 && (
-              <div className="cp-chips cp-chips--dark">
-                {welcome.side.chips.map(ch => <span key={ch}>{ch}</span>)}
+        ) : (
+          <header className="cp-minimal-top">
+            <div className={`cp-brand-lockup${lightText ? '' : ' is-dark'}`}>
+              {renderMark(lightText ? 'cp-mark--hero' : 'cp-mark--minimal')}
+              <div className={`cp-brand-copy${lightText ? '' : ' is-dark'}`}>
+                <strong>{company.name}</strong>
+                <span>{tagline}</span>
               </div>
-            )}
-          </div>
+            </div>
+            {renderTopActions()}
+          </header>
+        )}
+
+        <main className={`cp-minimal-main${isHeroBg ? ' is-after-banner' : ''}`}>
+          {!isHeroBg && (
+            <div className="cp-minimal-header">
+              {featureCardNode(lightText ? 'cp-feature-card--centered' : 'cp-feature-card--centered cp-feature-card--light')}
+              <h1 className="cp-minimal-headline">{welcome.side.title}</h1>
+              {hasHeroBody && <HeroRichContent text={branding.hero_body} tone={lightText ? 'light' : 'dark'} align="center" />}
+              {branding.show_highlights && welcome.side.chips.length > 0 && (
+                <div className={`cp-chips cp-chips--centered${lightText ? '' : ' cp-chips--dark'}`}>
+                  {welcome.side.chips.map(ch => <span key={ch}>{ch}</span>)}
+                </div>
+              )}
+            </div>
+          )}
           {renderFormArea()}
           {renderFooter()}
         </main>
@@ -340,8 +397,9 @@ export const CompanyLoginShell: React.FC<CompanyLoginShellProps> = ({
   /* Default: Split Showcase layout */
   return (
     <div className={rootClass} style={cssVars}>
+      {fullBgLayer}
       <aside className="cp-split-side">
-        {heroLayer}
+        {!isFullBg && heroLayer}
         <div className="cp-split-accent-bar" aria-hidden="true" />
 
         <div className="cp-brand-lockup cp-split-logo">
@@ -353,11 +411,13 @@ export const CompanyLoginShell: React.FC<CompanyLoginShellProps> = ({
         </div>
 
         <div className="cp-split-body" key={`${audience}:${company.slug}`}>
+          {featureCardNode()}
           <p className="cp-side-eyebrow">
             <span className="cp-side-dash" aria-hidden="true" />
             {welcome.side.eyebrow}
           </p>
           <h1 className="cp-side-title">{welcome.side.title}</h1>
+          {hasHeroBody && <HeroRichContent text={branding.hero_body} tone="light" align="left" />}
           {branding.show_highlights && welcome.side.chips.length > 0 && (
             <div className="cp-chips">
               {welcome.side.chips.map(ch => <span key={ch}>{ch}</span>)}
@@ -382,7 +442,7 @@ export const CompanyLoginShell: React.FC<CompanyLoginShellProps> = ({
       <main className="cp-split-main">
         {/* Mobile compact hero header when split sidebar collapses */}
         <div className="cp-mobile-banner">
-          {heroLayer}
+          {!isFullBg && heroLayer}
           <div className="cp-mobile-banner-inner">
             <div className="cp-brand-lockup">
               {renderMark('cp-mark--mobile')}

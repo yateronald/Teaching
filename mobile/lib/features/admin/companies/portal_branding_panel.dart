@@ -11,6 +11,7 @@ import '../../../core/constants/app_typography.dart';
 import '../../../core/localization/translations.dart';
 import '../common/admin_kit.dart';
 import 'company_model.dart';
+import 'hero_rich_field.dart';
 import 'portal_login_preview.dart';
 
 /// Full Portal Branding Studio in Mobile Admin: live WYSIWYG preview, logo &
@@ -37,6 +38,7 @@ class _PortalBrandingPanelState extends ConsumerState<PortalBrandingPanel> {
   late final TextEditingController _secondaryHex = TextEditingController(text: widget.company.branding.secondaryColor);
   late final TextEditingController _tagline = TextEditingController(text: widget.company.branding.tagline);
   late final TextEditingController _headline = TextEditingController(text: widget.company.branding.headline);
+  late final TextEditingController _heroBody = TextEditingController(text: widget.company.branding.heroBody);
   late final TextEditingController _welcome = TextEditingController(text: widget.company.branding.welcomeMessage);
   late final TextEditingController _website = TextEditingController(text: widget.company.branding.websiteUrl);
   late final TextEditingController _supportEmail = TextEditingController(text: widget.company.branding.supportEmail);
@@ -57,7 +59,7 @@ class _PortalBrandingPanelState extends ConsumerState<PortalBrandingPanel> {
   @override
   void dispose() {
     for (final c in [
-      _displayName, _slug, _primaryHex, _secondaryHex, _tagline, _headline,
+      _displayName, _slug, _primaryHex, _secondaryHex, _tagline, _headline, _heroBody,
       _welcome, _website, _supportEmail, _footerText, _newBadge,
     ]) {
       c.dispose();
@@ -134,7 +136,9 @@ class _PortalBrandingPanelState extends ConsumerState<PortalBrandingPanel> {
         _mediaChanged = true;
         if (cover) {
           _coverAddress = full;
-          if (_draft.heroStyle != 'cover') _draft = _draft.copyWith(heroStyle: 'cover');
+          if (_draft.coverPlacement == 'hero' && _draft.heroStyle != 'cover') {
+            _draft = _draft.copyWith(heroStyle: 'cover');
+          }
         } else {
           _logoAddress = full;
         }
@@ -224,6 +228,7 @@ class _PortalBrandingPanelState extends ConsumerState<PortalBrandingPanel> {
       _syncHexControllers(_draft);
       _tagline.text = '';
       _headline.text = '';
+      _heroBody.text = '';
       _welcome.text = '';
       _website.text = '';
       _supportEmail.text = '';
@@ -406,7 +411,7 @@ class _PortalBrandingPanelState extends ConsumerState<PortalBrandingPanel> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(fr ? 'Image de couverture (max 2 Mo)' : 'Cover image (max 2 MB)', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700)),
+                      Text(fr ? 'Image de fond (max 2 Mo)' : 'Cover / feature image (max 2 MB)', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 6,
@@ -428,6 +433,43 @@ class _PortalBrandingPanelState extends ConsumerState<PortalBrandingPanel> {
                 ),
               ],
             ),
+            if (_coverAddress != null) ...[
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 10),
+              Text(fr ? 'Position de l’image' : 'Image placement', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              SegmentedButton<String>(
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment(value: 'hero', label: Text(fr ? 'Bannière' : 'Top / Hero', style: const TextStyle(fontSize: 11.5))),
+                  ButtonSegment(value: 'full', label: Text(fr ? 'Page entière' : 'Full page', style: const TextStyle(fontSize: 11.5))),
+                  ButtonSegment(value: 'card', label: Text(fr ? 'Image encadrée' : 'Feature card', style: const TextStyle(fontSize: 11.5))),
+                ],
+                selected: {_draft.coverPlacement},
+                onSelectionChanged: (s) {
+                  final next = s.first;
+                  setState(() {
+                    _draft = _draft.copyWith(
+                      coverPlacement: next,
+                      heroStyle: next == 'hero' ? 'cover' : null,
+                    );
+                  });
+                },
+              ),
+              const SizedBox(height: 10),
+              Text(
+                fr ? 'Opacité de l’image : ${100 - _draft.coverOverlay}%' : 'Image opacity: ${100 - _draft.coverOverlay}%',
+                style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700),
+              ),
+              Slider(
+                min: 10,
+                max: 100,
+                divisions: 90,
+                value: (100 - _draft.coverOverlay).clamp(10, 100).toDouble(),
+                onChanged: (v) => setState(() => _draft = _draft.copyWith(coverOverlay: 100 - v.round())),
+              ),
+            ],
           ],
         )),
 
@@ -517,19 +559,16 @@ class _PortalBrandingPanelState extends ConsumerState<PortalBrandingPanel> {
                 ButtonSegment(value: 'cover', label: Text('Cover'), enabled: _coverAddress != null),
               ],
               selected: {_draft.heroStyle},
-              onSelectionChanged: (s) => setState(() => _draft = _draft.copyWith(heroStyle: s.first)),
+              onSelectionChanged: (s) {
+                final next = s.first;
+                setState(() {
+                  _draft = _draft.copyWith(
+                    heroStyle: next,
+                    coverPlacement: next == 'cover' ? 'hero' : null,
+                  );
+                });
+              },
             ),
-            if (_draft.heroStyle == 'cover' && _coverAddress != null) ...[
-              const SizedBox(height: 10),
-              Text(fr ? 'Contraste de l’image : ${_draft.coverOverlay}%' : 'Cover scrim darkness: ${_draft.coverOverlay}%', style: AppTypography.caption),
-              Slider(
-                min: 35,
-                max: 85,
-                divisions: 50,
-                value: _draft.coverOverlay.toDouble(),
-                onChanged: (v) => setState(() => _draft = _draft.copyWith(coverOverlay: v.round())),
-              ),
-            ],
             const SizedBox(height: 12),
             Row(
               children: [
@@ -654,6 +693,12 @@ class _PortalBrandingPanelState extends ConsumerState<PortalBrandingPanel> {
               decoration: adminInputDecoration(fr ? 'Titre principal (facultatif)' : 'Hero headline (optional)').copyWith(
                 hintText: fr ? 'Préparez le TCF avec $shownName' : 'Prepare for the TCF with $shownName',
               ),
+            ),
+            const SizedBox(height: 10),
+            HeroRichField(
+              controller: _heroBody,
+              fr: fr,
+              onChanged: (v) => setState(() => _draft = _draft.copyWith(heroBody: v.trim())),
             ),
             const SizedBox(height: 10),
             TextField(

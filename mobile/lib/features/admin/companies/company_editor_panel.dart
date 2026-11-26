@@ -12,6 +12,7 @@ import '../../../core/localization/translations.dart';
 import '../common/admin_kit.dart';
 import 'company_model.dart';
 import 'content_picker.dart';
+import 'hero_rich_field.dart';
 import 'portal_login_preview.dart';
 
 /// Creates a company with its first manager, or edits its details.
@@ -26,6 +27,7 @@ class CompanyEditorPanel extends ConsumerStatefulWidget {
 
 class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
   static const _maxLogoBytes = 1024 * 1024;
+  static const _maxCoverBytes = 2 * 1024 * 1024;
   static const _logoExtensions = ['png', 'jpg', 'jpeg', 'webp'];
 
   final _form = GlobalKey<FormState>();
@@ -40,6 +42,8 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
   final _email = TextEditingController();
   late final _slug = TextEditingController(text: widget.company?.slug ?? '');
   late final _tagline = TextEditingController(text: widget.company?.branding.tagline ?? '');
+  late final _headline = TextEditingController(text: widget.company?.branding.headline ?? '');
+  late final _heroBody = TextEditingController(text: widget.company?.branding.heroBody ?? '');
   late final _primaryHex = TextEditingController(text: (widget.company?.branding ?? const PortalBranding()).primaryColor);
   late final _secondaryHex = TextEditingController(text: (widget.company?.branding ?? const PortalBranding()).secondaryColor);
 
@@ -54,9 +58,13 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
   bool _logoRemoved = false;
   ({String name, Uint8List bytes})? _logo;
   bool _pickingLogo = false;
+  bool _coverRemoved = false;
+  ({String name, Uint8List bytes})? _cover;
+  bool _pickingCover = false;
   bool _loadingDetail = false;
   late bool _portalExpanded = widget.company != null;
   String? _logoError;
+  String? _coverError;
   bool _saving = false;
   String? _error;
 
@@ -94,6 +102,8 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
         _primaryHex.text = full.branding.primaryColor;
         _secondaryHex.text = full.branding.secondaryColor;
         if (_tagline.text.isEmpty && full.branding.tagline.isNotEmpty) _tagline.text = full.branding.tagline;
+        if (_headline.text.isEmpty && full.branding.headline.isNotEmpty) _headline.text = full.branding.headline;
+        if (_heroBody.text.isEmpty && full.branding.heroBody.isNotEmpty) _heroBody.text = full.branding.heroBody;
         if (_slug.text.isEmpty && full.slug.isNotEmpty) _slug.text = full.slug;
         _loadingDetail = false;
       });
@@ -104,7 +114,7 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
 
   @override
   void dispose() {
-    for (final c in [_name, _displayName, _seats, _notes, _ee, _eo, _first, _last, _email, _slug, _tagline, _primaryHex, _secondaryHex]) {
+    for (final c in [_name, _displayName, _seats, _notes, _ee, _eo, _first, _last, _email, _slug, _tagline, _headline, _heroBody, _primaryHex, _secondaryHex]) {
       c.dispose();
     }
     super.dispose();
@@ -177,8 +187,51 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
     }
   }
 
+  Future<void> _pickCover() async {
+    if (_pickingCover || _saving) return;
+    final fr = context.isFrench;
+    final tooLarge = fr ? 'L’image doit faire 2 Mo au plus.' : 'The image must be 2 MB or less.';
+    final unreadable = fr ? 'Impossible de lire cette image.' : 'Could not read this image.';
+    setState(() {
+      _pickingCover = true;
+      _coverError = null;
+    });
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: _logoExtensions);
+      final file = result?.files.single;
+      if (file == null || !mounted) return;
+      if (!_logoExtensions.contains(file.extension?.toLowerCase())) {
+        setState(() => _coverError = fr ? 'Choisissez une image PNG, JPEG ou WebP.' : 'Choose a PNG, JPEG or WebP image.');
+        return;
+      }
+      if (file.size > _maxCoverBytes) {
+        setState(() => _coverError = tooLarge);
+        return;
+      }
+      final bytes = file.bytes ?? await file.xFile.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        if (bytes.length > _maxCoverBytes) {
+          _coverError = tooLarge;
+        } else if (bytes.isEmpty) {
+          _coverError = unreadable;
+        } else {
+          _cover = (name: file.name, bytes: bytes);
+          _coverRemoved = false;
+          if (_branding.coverPlacement == 'hero') {
+            _branding = _branding.copyWith(heroStyle: 'cover');
+          }
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _coverError = unreadable);
+    } finally {
+      if (mounted) setState(() => _pickingCover = false);
+    }
+  }
+
   Future<void> _save() async {
-    if (_saving || _pickingLogo || _loadingDetail) return;
+    if (_saving || _pickingLogo || _pickingCover || _loadingDetail) return;
     final fr = context.isFrench;
     setState(() => _error = null);
     if (!(_form.currentState?.validate() ?? false)) return;
@@ -204,7 +257,11 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
       return;
     }
     setState(() => _saving = true);
-    final updatedBranding = _branding.copyWith(tagline: _tagline.text.trim());
+    final updatedBranding = _branding.copyWith(
+      tagline: _tagline.text.trim(),
+      headline: _headline.text.trim(),
+      heroBody: _heroBody.text.trim(),
+    );
     final body = <String, dynamic>{
       'name': _name.text.trim(),
       'display_name': _displayName.text.trim(),
@@ -234,6 +291,14 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
         } else if (_logoRemoved && widget.company!.logoUrl != null) {
           await api.delete('/admin/organizations/$orgId/logo');
         }
+        if (_cover != null) {
+          await api.post(
+            '/admin/organizations/$orgId/cover',
+            data: FormData.fromMap({'cover': MultipartFile.fromBytes(_cover!.bytes, filename: _cover!.name)}),
+          );
+        } else if (_coverRemoved && widget.company!.coverUrl != null) {
+          await api.delete('/admin/organizations/$orgId/cover');
+        }
         if (!mounted) return;
         adminToast(context, fr ? 'Entreprise mise à jour' : 'Company updated');
         Navigator.of(context).pop(true);
@@ -248,11 +313,13 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
           'manager': {'first_name': _first.text.trim(), 'last_name': _last.text.trim(), 'email': _email.text.trim()},
         };
         final logo = _logo;
-        final res = await api.post('/admin/organizations', data: logo == null
+        final cover = _cover;
+        final res = await api.post('/admin/organizations', data: (logo == null && cover == null)
             ? payload
             : FormData.fromMap({
                 'payload': jsonEncode(payload),
-                'logo': MultipartFile.fromBytes(logo.bytes, filename: logo.name),
+                if (logo != null) 'logo': MultipartFile.fromBytes(logo.bytes, filename: logo.name),
+                if (cover != null) 'cover': MultipartFile.fromBytes(cover.bytes, filename: cover.name),
               }));
         if (!mounted) return;
         final d = J.map(res.data);
@@ -417,6 +484,7 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
     String? required(String? v) => (v ?? '').trim().isEmpty ? (fr ? 'Obligatoire' : 'Required') : null;
     final used = widget.company?.seatsUsed ?? 0;
     final tooLow = _editing && (_seatValue ?? 0) > 0 && _seatValue! < used;
+    final hasAnyCover = _cover != null || (!_coverRemoved && _existingCoverUrl != null);
 
     return Form(
       key: _form,
@@ -433,7 +501,7 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
             key: const Key('company-save'),
             icon: _editing ? Icons.check : Icons.add_business_outlined,
             busy: _saving,
-            onPressed: _pickingLogo || _loadingDetail ? null : _save,
+            onPressed: _pickingLogo || _pickingCover || _loadingDetail ? null : _save,
           ),
         ],
         children: [
@@ -580,10 +648,15 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
                         context,
                         companyName: _displayName.text.trim().isEmpty ? _name.text.trim() : _displayName.text.trim(),
                         slug: _slug.text.trim().isEmpty ? 'company' : _slug.text.trim(),
-                        branding: _branding.copyWith(tagline: _tagline.text.trim()),
+                        branding: _branding.copyWith(
+                          tagline: _tagline.text.trim(),
+                          headline: _headline.text.trim(),
+                          heroBody: _heroBody.text.trim(),
+                        ),
                         logoBytes: _logo?.bytes,
                         logoUrl: _logoRemoved ? null : _existingLogoUrl,
-                        coverUrl: _existingCoverUrl,
+                        coverBytes: _cover?.bytes,
+                        coverUrl: _coverRemoved ? null : _existingCoverUrl,
                         initialLanguage: _language,
                       ),
                       icon: const Icon(Icons.visibility_outlined, size: 17),
@@ -633,7 +706,7 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
                               primaryColor: p.primaryColor,
                               secondaryColor: p.secondaryColor,
                               surfaceTone: p.surfaceTone,
-                              heroStyle: _existingCoverUrl != null ? _branding.heroStyle : p.heroStyle,
+                              heroStyle: hasAnyCover && _branding.heroStyle == 'cover' ? 'cover' : p.heroStyle,
                             );
                           }),
                           avatar: CircleAvatar(backgroundColor: parseHexColor(p.primaryColor)),
@@ -658,10 +731,94 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
                     selected: {_branding.loginLayout},
                     onSelectionChanged: (s) => setState(() => _branding = _branding.copyWith(loginLayout: s.first)),
                   ),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 10),
+                  Text(fr ? 'Image de fond ou encadrée (max 2 Mo)' : 'Background or feature image (max 2 MB)', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, color: AppColors.textMuted)),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      AdminButton(
+                        hasAnyCover ? (fr ? 'Changer l’image' : 'Change image') : (fr ? 'Ajouter une image' : 'Add image'),
+                        icon: Icons.panorama_outlined,
+                        primary: false,
+                        busy: _pickingCover,
+                        onPressed: _saving ? null : _pickCover,
+                      ),
+                      if (hasAnyCover)
+                        AdminButton(
+                          fr ? 'Retirer' : 'Remove',
+                          primary: false,
+                          onPressed: _saving || _pickingCover ? null : () => setState(() {
+                            _cover = null;
+                            _coverRemoved = true;
+                            _coverError = null;
+                            if (_branding.heroStyle == 'cover') {
+                              _branding = _branding.copyWith(heroStyle: 'geometric');
+                            }
+                          }),
+                        ),
+                    ],
+                  ),
+                  if (_cover != null) _Hint(_cover!.name),
+                  if (_coverError != null) _ErrorBanner(_coverError!),
+                  if (hasAnyCover) ...[
+                    const SizedBox(height: 8),
+                    SegmentedButton<String>(
+                      showSelectedIcon: false,
+                      style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                      segments: [
+                        ButtonSegment(value: 'hero', label: Text(fr ? 'Bannière' : 'Top / Hero', style: const TextStyle(fontSize: 11.5))),
+                        ButtonSegment(value: 'full', label: Text(fr ? 'Page entière' : 'Full page', style: const TextStyle(fontSize: 11.5))),
+                        ButtonSegment(value: 'card', label: Text(fr ? 'Image encadrée' : 'Feature card', style: const TextStyle(fontSize: 11.5))),
+                      ],
+                      selected: {_branding.coverPlacement},
+                      onSelectionChanged: (s) {
+                        final next = s.first;
+                        setState(() {
+                          _branding = _branding.copyWith(
+                            coverPlacement: next,
+                            heroStyle: next == 'hero' ? 'cover' : null,
+                          );
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      fr ? 'Opacité de l’image : ${100 - _branding.coverOverlay}%' : 'Image opacity: ${100 - _branding.coverOverlay}%',
+                      style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    Slider(
+                      min: 10,
+                      max: 100,
+                      divisions: 90,
+                      value: (100 - _branding.coverOverlay).clamp(10, 100).toDouble(),
+                      onChanged: (v) => setState(() => _branding = _branding.copyWith(coverOverlay: 100 - v.round())),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _headline,
+                    maxLength: 110,
+                    onChanged: (v) => setState(() => _branding = _branding.copyWith(headline: v.trim())),
+                    decoration: adminInputDecoration(fr ? 'Titre principal (facultatif)' : 'Hero headline (optional)').copyWith(
+                      counterText: '',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  HeroRichField(
+                    controller: _heroBody,
+                    fr: fr,
+                    minLines: 3,
+                    onChanged: (v) => setState(() => _branding = _branding.copyWith(heroBody: v.trim())),
+                  ),
                   const SizedBox(height: 6),
                   _Hint(fr
-                      ? 'Vous pourrez aussi gérer l’image de couverture et tous les textes depuis Portail & Identité.'
-                      : 'You can also fine-tune the cover image and full copy in Portal & Branding.'),
+                      ? 'Ajoutez du texte mis en forme ou une image, puis ouvrez Aperçu pour voir le résultat en direct.'
+                      : 'Add formatted hero text or an image, then tap Preview to inspect the live login page.'),
                 ],
               ],
             ),

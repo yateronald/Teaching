@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -9,6 +11,7 @@ import 'package:mobile/features/admin/companies/company_detail_panel.dart';
 import 'package:mobile/features/admin/companies/company_editor_panel.dart';
 import 'package:mobile/features/admin/companies/company_model.dart';
 import 'package:mobile/features/admin/companies/portal_branding_panel.dart';
+import 'package:mobile/features/admin/companies/portal_login_preview.dart';
 
 class _NoSession extends TokenStorage {
   @override
@@ -143,10 +146,65 @@ void main() {
     expect(isValidPortalSlug('o'), isFalse);
     expect(isValidPortalSlug('BAD SLUG'), isFalse);
 
-    final parsed = PortalBranding.fromJson({'primary_color': '#065f46', 'login_layout': 'centered', 'hide_powered_by': false});
+    final parsed = PortalBranding.fromJson({
+      'primary_color': '#065f46',
+      'login_layout': 'centered',
+      'cover_placement': 'full',
+      'cover_overlay': 0,
+      'hero_body': '## Welcome\n- **Bold** item\n- *Italic* item',
+      'hide_powered_by': false,
+    });
     expect(parsed.primaryColor, '#065F46');
     expect(parsed.loginLayout, 'centered');
+    expect(parsed.coverPlacement, 'full');
+    expect(parsed.coverOverlay, 0);
+    expect(parsed.heroBody, '## Welcome\n- **Bold** item\n- *Italic* item');
     expect(parsed.hidePoweredBy, isFalse);
+
+    final clamped = PortalBranding.fromJson({
+      'cover_placement': 'unknown',
+      'cover_overlay': 999,
+    });
+    expect(clamped.coverPlacement, 'hero');
+    expect(clamped.coverOverlay, 90);
+  });
+
+  testWidgets('PortalLoginPreview renders hero/full/card cover placements, opacity, and rich hero body cleanly', (tester) async {
+    final png1x1 = Uint8List.fromList(base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    ));
+    const richBody = '## Program overview\n- Full **TCF Canada** practice exams\n- *Instant* AI grading';
+
+    for (final layout in ['split', 'centered', 'minimal']) {
+      for (final placement in ['hero', 'full', 'card']) {
+        final branding = PortalBranding(
+          loginLayout: layout,
+          heroStyle: 'cover',
+          coverPlacement: placement,
+          coverOverlay: placement == 'full' ? 20 : 0,
+          heroBody: richBody,
+        );
+        await _mount(
+          tester,
+          SingleChildScrollView(
+            child: PortalLoginPreview(
+              companyName: 'Data Tech',
+              slug: 'data-tech',
+              branding: branding,
+              coverBytes: png1x1,
+            ),
+          ),
+          size: const Size(420, 860),
+        );
+        expect(find.textContaining('Program overview', findRichText: true), findsOneWidget);
+        expect(find.textContaining('TCF Canada', findRichText: true), findsOneWidget);
+        expect(tester.takeException(), isNull, reason: 'desktop $layout/$placement');
+
+        await tester.tap(find.byIcon(Icons.smartphone));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: 'mobile $layout/$placement');
+      }
+    }
   });
 
   testWidgets('PortalBrandingPanel renders live preview across viewports and saves updates', (tester) async {

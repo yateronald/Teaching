@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_typography.dart';
+import 'hero_rich_field.dart';
 import 'portal_branding.dart';
 
 /// Interactive WYSIWYG preview of the company's `/o/<slug>` sign-in portal.
@@ -374,8 +375,14 @@ class _LoginCanvas extends StatelessWidget {
     final secondary = parseHexColor(branding.secondaryColor, const Color(0xFF0F766E));
     final primaryFg = contrastForeground(primary);
     final surface = surfaceToneColor(branding.surfaceTone);
-    final hasCover = branding.heroStyle == 'cover' && (coverBytes != null || (coverUrl != null && coverUrl!.isNotEmpty));
-    final effectiveHero = branding.heroStyle == 'cover' && !hasCover ? 'geometric' : branding.heroStyle;
+    final hasCover = coverBytes != null || (coverUrl != null && coverUrl!.isNotEmpty);
+    final placement = branding.coverPlacement;
+    final isFullBg = hasCover && placement == 'full';
+    final isHeroBg = hasCover && placement == 'hero' && branding.heroStyle == 'cover';
+    final isCardImg = hasCover && placement == 'card';
+    final effectiveHero = branding.heroStyle == 'cover' && !isHeroBg ? 'geometric' : branding.heroStyle;
+    final imageOpacity = ((100 - branding.coverOverlay).clamp(10, 100)) / 100.0;
+    final hasHeroBody = branding.heroBody.trim().isNotEmpty;
     final tagline = branding.tagline.isNotEmpty ? branding.tagline : _tr('Exam preparation', 'Préparation aux examens');
     final headline = branding.headline.isNotEmpty ? branding.headline : _tr('Prepare for the TCF with $companyName', 'Préparez le TCF avec $companyName');
     final sub = branding.welcomeMessage.isNotEmpty
@@ -390,41 +397,74 @@ class _LoginCanvas extends StatelessWidget {
     final footerCopy = branding.footerText.isNotEmpty ? branding.footerText : '© ${DateTime.now().year} $companyName';
     final btnRadius = branding.buttonStyle == 'pill' ? 999.0 : branding.buttonStyle == 'sharp' ? 6.0 : 10.0;
 
+    Widget coverImg() => Opacity(
+          opacity: imageOpacity,
+          child: coverBytes != null
+              ? Image.memory(coverBytes!, fit: BoxFit.cover)
+              : Image.network(coverUrl!, fit: BoxFit.cover, errorBuilder: (_, _, _) => const SizedBox.shrink()),
+        );
+
+    BoxDecoration brandHeroDecoration() => BoxDecoration(
+          color: heroDeepColor(primary),
+          gradient: effectiveHero == 'solid'
+              ? null
+              : effectiveHero == 'gradient'
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [heroDeepColor(primary), heroMidColor(primary), Color.lerp(secondary, const Color(0xFF09111F), 0.35)!],
+                    )
+                  : LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [heroDeepColor(primary), heroMidColor(primary)],
+                    ),
+        );
+
     Widget heroBg() => Positioned.fill(
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Container(
-                decoration: BoxDecoration(
-                  color: heroDeepColor(primary),
-                  gradient: effectiveHero == 'solid'
-                      ? null
-                      : effectiveHero == 'gradient'
-                          ? LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [heroDeepColor(primary), heroMidColor(primary), Color.lerp(secondary, const Color(0xFF09111F), 0.35)!],
-                            )
-                          : LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [heroDeepColor(primary), heroMidColor(primary)],
-                            ),
-                ),
-              ),
-              if (hasCover)
-                coverBytes != null
-                    ? Image.memory(coverBytes!, fit: BoxFit.cover)
-                    : Image.network(coverUrl!, fit: BoxFit.cover, errorBuilder: (_, _, _) => const SizedBox.shrink()),
-              if (hasCover)
-                Container(
-                  color: const Color(0xFF09111F).withValues(alpha: branding.coverOverlay / 100.0),
-                ),
-              if (effectiveHero == 'geometric')
-                CustomPaint(painter: _GridPainter()),
+              Container(decoration: brandHeroDecoration()),
+              if (isHeroBg) coverImg(),
+              if (isHeroBg) Container(color: const Color(0xFF09111F).withValues(alpha: 0.14)),
+              if (effectiveHero == 'geometric') CustomPaint(painter: _GridPainter()),
             ],
           ),
         );
+
+    Widget fullBgLayer() => Positioned.fill(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Container(decoration: brandHeroDecoration()),
+              coverImg(),
+              Container(color: const Color(0xFF09111F).withValues(alpha: 0.18)),
+            ],
+          ),
+        );
+
+    Widget? featureCard({bool centered = false, bool light = false}) {
+      if (!isCardImg) return null;
+      return Container(
+        constraints: BoxConstraints(maxWidth: centered ? (mobile ? 220 : 320) : 340),
+        margin: EdgeInsets.only(bottom: mobile ? 8 : 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: light ? const Color(0xFFE2E8F0) : Colors.white.withValues(alpha: 0.24)),
+          color: light ? Colors.white : const Color(0xFF09111F).withValues(alpha: 0.22),
+          boxShadow: [
+            BoxShadow(color: const Color(0xFF09111F).withValues(alpha: light ? 0.1 : 0.3), blurRadius: 14, offset: const Offset(0, 6)),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          width: double.infinity,
+          height: mobile ? 76 : 108,
+          child: coverImg(),
+        ),
+      );
+    }
 
     Widget mark(double size) {
       final initial = companyName.isEmpty ? 'C' : companyName[0].toUpperCase();
@@ -678,82 +718,132 @@ class _LoginCanvas extends StatelessWidget {
           ),
         );
 
-    Widget footer() => Column(
+    Widget footer({bool onDark = false}) => Column(
           children: [
-            Text(footerCopy, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)), textAlign: TextAlign.center),
+            Text(
+              footerCopy,
+              style: TextStyle(fontSize: 11, color: onDark ? Colors.white.withValues(alpha: 0.88) : const Color(0xFF64748B)),
+              textAlign: TextAlign.center,
+            ),
             if (!branding.hidePoweredBy) ...[
               const SizedBox(height: 2),
               Text(
                 '${_tr('Powered by', 'Propulsé par')} Learn French with Natives',
-                style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: onDark ? Colors.white.withValues(alpha: 0.88) : const Color(0xFF64748B)),
               ),
             ],
           ],
         );
 
+    Widget wrapDesktopClip(Widget child) => mobile
+        ? child
+        : SingleChildScrollView(physics: const NeverScrollableScrollPhysics(), child: child);
+
     if (branding.loginLayout == 'centered' || branding.loginLayout == 'minimal') {
       final centered = branding.loginLayout == 'centered';
-      return Container(
-        color: surface,
-        child: Stack(
+      final showTopBanner = (centered && !isFullBg) || (!centered && isHeroBg);
+      final lightIntro = centered || isFullBg || isHeroBg;
+      final pad = mobile ? 12.0 : 18.0;
+      final cardNode = featureCard(centered: true, light: !lightIntro);
+
+      final introContent = Padding(
+        padding: EdgeInsets.fromLTRB(pad, pad, pad, showTopBanner ? (centered ? 40 : 18) : 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (centered) Positioned(top: 0, left: 0, right: 0, height: mobile ? 180 : 240, child: Stack(children: [heroBg()])),
-            Padding(
-              padding: EdgeInsets.all(mobile ? 12 : 18),
+            Row(
+              children: [
+                mark(mobile ? 34 : 38),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(companyName, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: lightIntro ? Colors.white : const Color(0xFF0F172A)), overflow: TextOverflow.ellipsis),
+                      Text(tagline, style: TextStyle(fontSize: 11, color: lightIntro ? Colors.white70 : const Color(0xFF64748B)), overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+                topPills(),
+              ],
+            ),
+            SizedBox(height: mobile ? 10 : 14),
+            if (cardNode != null) cardNode,
+            Text(
+              headline,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: mobile ? 16 : 21, fontWeight: FontWeight.w800, color: lightIntro ? Colors.white : const Color(0xFF0F172A)),
+            ),
+            if (hasHeroBody) ...[
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: HeroRichPreviewText(
+                  text: branding.heroBody,
+                  light: lightIntro,
+                  centered: true,
+                  compact: mobile,
+                  accentColor: lightIntro ? secondary : primary,
+                ),
+              ),
+            ],
+            if (branding.showHighlights && chips.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                alignment: WrapAlignment.center,
+                children: [
+                  for (final c in chips)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: lightIntro ? Colors.white.withValues(alpha: 0.14) : primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: lightIntro ? Colors.white24 : primary.withValues(alpha: 0.25)),
+                      ),
+                      child: Text(c.toUpperCase(), style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: lightIntro ? Colors.white : primary)),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      );
+
+      final pageBody = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showTopBanner)
+            Stack(children: [heroBg(), introContent])
+          else
+            introContent,
+          Transform.translate(
+            offset: Offset(0, (centered && !isFullBg) ? -24 : 0),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(pad, (centered && !isFullBg) ? 0 : 8, pad, pad),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      mark(mobile ? 34 : 38),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(companyName, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: centered ? Colors.white : const Color(0xFF0F172A)), overflow: TextOverflow.ellipsis),
-                            Text(tagline, style: TextStyle(fontSize: 11, color: centered ? Colors.white70 : const Color(0xFF64748B)), overflow: TextOverflow.ellipsis),
-                          ],
-                        ),
-                      ),
-                      topPills(),
-                    ],
-                  ),
-                  SizedBox(height: mobile ? 10 : 14),
-                  Text(
-                    headline,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: mobile ? 16 : 21, fontWeight: FontWeight.w800, color: centered ? Colors.white : const Color(0xFF0F172A)),
-                  ),
-                  if (branding.showHighlights && chips.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      alignment: WrapAlignment.center,
-                      children: [
-                        for (final c in chips)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: centered ? Colors.white.withValues(alpha: 0.14) : primary.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(color: centered ? Colors.white24 : primary.withValues(alpha: 0.25)),
-                            ),
-                            child: Text(c.toUpperCase(), style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: centered ? Colors.white : primary)),
-                          ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 12),
                   loginCard(),
                   const SizedBox(height: 10),
-                  footer(),
+                  footer(onDark: isFullBg),
                 ],
               ),
             ),
+          ),
+        ],
+      );
+
+      return Container(
+        color: surface,
+        child: Stack(
+          fit: mobile ? StackFit.passthrough : StackFit.expand,
+          children: [
+            if (isFullBg) fullBgLayer(),
+            wrapDesktopClip(pageBody),
           ],
         ),
       );
@@ -761,143 +851,193 @@ class _LoginCanvas extends StatelessWidget {
 
     // Split Showcase Layout
     if (mobile) {
+      final cardNode = featureCard(centered: true);
+      final bannerContent = Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                mark(36),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(companyName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white), overflow: TextOverflow.ellipsis),
+                      Text(tagline, style: const TextStyle(fontSize: 11, color: Colors.white70), overflow: TextOverflow.ellipsis),
+                    ],
+                  ),
+                ),
+                topPills(),
+              ],
+            ),
+            if (cardNode != null || hasHeroBody) ...[
+              const SizedBox(height: 10),
+              if (cardNode != null) Center(child: cardNode),
+              if (hasHeroBody)
+                HeroRichPreviewText(
+                  text: branding.heroBody,
+                  light: true,
+                  compact: true,
+                  accentColor: secondary,
+                ),
+            ],
+          ],
+        ),
+      );
+
       return Container(
         color: surface,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Stack(
           children: [
-            Stack(
+            if (isFullBg) fullBgLayer(),
+            Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                heroBg(),
+                if (isFullBg)
+                  bannerContent
+                else
+                  Stack(children: [heroBg(), bannerContent]),
                 Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
+                  padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
+                  child: Column(
                     children: [
-                      mark(36),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(companyName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white), overflow: TextOverflow.ellipsis),
-                            Text(tagline, style: const TextStyle(fontSize: 11, color: Colors.white70), overflow: TextOverflow.ellipsis),
-                          ],
-                        ),
-                      ),
-                      topPills(),
+                      loginCard(),
+                      const SizedBox(height: 12),
+                      footer(onDark: isFullBg),
                     ],
                   ),
                 ),
               ],
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 16, 12, 16),
-              child: Column(
-                children: [
-                  loginCard(),
-                  const SizedBox(height: 12),
-                  footer(),
-                ],
-              ),
             ),
           ],
         ),
       );
     }
 
+    final splitCardNode = featureCard();
     return Container(
       color: surface,
-      child: Row(
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          // Left hero showcase
-          Expanded(
-            flex: 46,
-            child: Stack(
-              children: [
-                heroBg(),
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(height: 4, decoration: BoxDecoration(gradient: LinearGradient(colors: [primary, secondary]))),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(28),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+          if (isFullBg) fullBgLayer(),
+          Row(
+            children: [
+              // Left hero showcase
+              Expanded(
+                flex: 46,
+                child: Stack(
+                  children: [
+                    if (!isFullBg) heroBg(),
+                    if (!isFullBg)
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: Container(height: 4, decoration: BoxDecoration(gradient: LinearGradient(colors: [primary, secondary]))),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.all(28),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          mark(44),
-                          const SizedBox(width: 12),
+                          Row(
+                            children: [
+                              mark(44),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(companyName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white), overflow: TextOverflow.ellipsis),
+                                    Text(tagline, style: const TextStyle(fontSize: 12, color: Colors.white70), overflow: TextOverflow.ellipsis),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(companyName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white), overflow: TextOverflow.ellipsis),
-                                Text(tagline, style: const TextStyle(fontSize: 12, color: Colors.white70), overflow: TextOverflow.ellipsis),
-                              ],
+                            child: Center(
+                              child: SingleChildScrollView(
+                                physics: const NeverScrollableScrollPhysics(),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (splitCardNode != null) splitCardNode,
+                                    Text(tagline.toUpperCase(), style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 1.5, color: Colors.white70)),
+                                    const SizedBox(height: 8),
+                                    Text(headline, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white, height: 1.15)),
+                                    if (hasHeroBody) ...[
+                                      const SizedBox(height: 12),
+                                      HeroRichPreviewText(
+                                        text: branding.heroBody,
+                                        light: true,
+                                        accentColor: secondary,
+                                      ),
+                                    ],
+                                    if (branding.showHighlights && chips.isNotEmpty) ...[
+                                      const SizedBox(height: 14),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: [
+                                          for (final c in chips)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white.withValues(alpha: 0.12),
+                                                borderRadius: BorderRadius.circular(999),
+                                                border: Border.all(color: Colors.white24),
+                                              ),
+                                              child: Text(c.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
+                          const Divider(height: 1, color: Colors.white24),
+                          const SizedBox(height: 12),
+                          if (!branding.hidePoweredBy)
+                            Text('${_tr('Powered by', 'Propulsé par')} Learn French with Natives', style: const TextStyle(fontSize: 11.5, color: Colors.white70, fontWeight: FontWeight.w600))
+                          else
+                            Row(
+                              children: [
+                                Container(width: 7, height: 7, decoration: const BoxDecoration(color: Color(0xFF34D399), shape: BoxShape.circle)),
+                                const SizedBox(width: 7),
+                                Text(_tr('$companyName Official Portal', 'Portail officiel $companyName'), style: const TextStyle(fontSize: 11.5, color: Colors.white70, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
                         ],
                       ),
+                    ),
+                  ],
+                ),
+              ),
+              // Right form area
+              Expanded(
+                flex: 54,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
+                  child: Column(
+                    children: [
+                      Align(alignment: Alignment.centerRight, child: topPills()),
                       const Spacer(),
-                      Text(tagline.toUpperCase(), style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 1.5, color: Colors.white70)),
-                      const SizedBox(height: 8),
-                      Text(headline, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white, height: 1.15)),
-                      if (branding.showHighlights && chips.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            for (final c in chips)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(color: Colors.white24),
-                                ),
-                                child: Text(c.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
-                              ),
-                          ],
-                        ),
-                      ],
-                      const SizedBox(height: 20),
-                      const Divider(height: 1, color: Colors.white24),
-                      const SizedBox(height: 12),
-                      if (!branding.hidePoweredBy)
-                        Text('${_tr('Powered by', 'Propulsé par')} Learn French with Natives', style: const TextStyle(fontSize: 11.5, color: Colors.white70, fontWeight: FontWeight.w600))
-                      else
-                        Row(
-                          children: [
-                            Container(width: 7, height: 7, decoration: const BoxDecoration(color: Color(0xFF34D399), shape: BoxShape.circle)),
-                            const SizedBox(width: 7),
-                            Text(_tr('$companyName Official Portal', 'Portail officiel $companyName'), style: const TextStyle(fontSize: 11.5, color: Colors.white70, fontWeight: FontWeight.w600)),
-                          ],
-                        ),
+                      loginCard(),
+                      const Spacer(),
+                      footer(onDark: isFullBg),
                     ],
                   ),
                 ),
-              ],
-            ),
-          ),
-          // Right form area
-          Expanded(
-            flex: 54,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
-              child: Column(
-                children: [
-                  Align(alignment: Alignment.centerRight, child: topPills()),
-                  const Spacer(),
-                  loginCard(),
-                  const Spacer(),
-                  footer(),
-                ],
               ),
-            ),
+            ],
           ),
         ],
       ),

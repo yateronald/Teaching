@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { App as AntApp, Button, DatePicker, Drawer, Input, InputNumber, Segmented, Skeleton, Upload } from 'antd';
-import { BankOutlined, CheckCircleOutlined, UploadOutlined, WarningOutlined } from '@ant-design/icons';
+import { App as AntApp, Button, DatePicker, Drawer, Input, InputNumber, Segmented, Skeleton, Slider, Upload } from 'antd';
+import { BankOutlined, CheckCircleOutlined, PictureOutlined, UploadOutlined, WarningOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -11,8 +11,9 @@ import {
   normalizePortalBranding,
   validateHex,
 } from '../../../utils/portalTheme';
-import type { HeroStyle, LoginLayout, PortalBranding, SurfaceTone } from '../../../utils/portalTheme';
+import type { CoverPlacement, HeroStyle, LoginLayout, PortalBranding, SurfaceTone } from '../../../utils/portalTheme';
 import CompanyLoginShell from '../../Auth/CompanyLoginShell';
+import HeroRichEditor from '../../Org/HeroRichEditor';
 import { call, errorText } from '../../Org/orgModel';
 import type { Company, ContentRef } from '../../Org/orgModel';
 import { LogoTile } from '../../Org/OrgUi';
@@ -43,6 +44,9 @@ const CompanyCreate: React.FC<{
   const [existingLogoUrl, setExistingLogoUrl] = useState<string | null>(null);
   const [existingCoverUrl, setExistingCoverUrl] = useState<string | null>(null);
   const [logoRemoved, setLogoRemoved] = useState(false);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [coverRemoved, setCoverRemoved] = useState(false);
   const [initialContentKeys, setInitialContentKeys] = useState<string[]>([]);
 
   const [name, setName] = useState('');
@@ -87,6 +91,8 @@ const CompanyCreate: React.FC<{
     setErr(null);
     setLogo(null);
     setLogoRemoved(false);
+    setCoverFile(null);
+    setCoverRemoved(false);
     call<ContentNode[]>(apiCall, '/tcf/exam-assignments/content-tree')
       .then(t => { if (alive) setTree(t); })
       .catch(() => { if (alive) setTree([]); });
@@ -139,6 +145,13 @@ const CompanyCreate: React.FC<{
     return () => URL.revokeObjectURL(url);
   }, [open, logo]);
 
+  useEffect(() => {
+    if (!open || !coverFile) { setCoverPreview(null); return; }
+    const url = URL.createObjectURL(coverFile);
+    setCoverPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [open, coverFile]);
+
   const selectLogo = (file: File) => {
     if (!LOGO_TYPES.includes(file.type)) message.error('Choose a PNG, JPG or WebP image.');
     else if (file.size > 1024 * 1024) message.error('The logo must be 1 MB or less.');
@@ -146,7 +159,19 @@ const CompanyCreate: React.FC<{
     return false;
   };
 
+  const selectCover = (file: File) => {
+    if (!LOGO_TYPES.includes(file.type)) message.error('Choose a PNG, JPG or WebP image.');
+    else if (file.size > 2 * 1024 * 1024) message.error('The image must be 2 MB or less.');
+    else {
+      setCoverFile(file);
+      setCoverRemoved(false);
+      setBranding(b => (b.cover_placement === 'hero' ? { ...b, hero_style: 'cover' } : b));
+    }
+    return false;
+  };
+
   const shownLogoUrl = logoPreview || (!logoRemoved ? existingLogoUrl : null);
+  const shownCoverUrl = coverPreview || (!coverRemoved ? existingCoverUrl : null);
 
   const index = useMemo(() => indexTree(tree || []), [tree]);
   const everything = () => setContent(index.roots);
@@ -212,6 +237,14 @@ const CompanyCreate: React.FC<{
           await call(apiCall, `/admin/organizations/${editCompanyId}/logo`, 'DELETE');
         }
 
+        if (coverFile) {
+          const fd = new FormData();
+          fd.append('cover', coverFile);
+          await call(apiCall, `/admin/organizations/${editCompanyId}/cover`, 'POST', fd);
+        } else if (coverRemoved && existingCompany?.brand?.cover_url) {
+          await call(apiCall, `/admin/organizations/${editCompanyId}/cover`, 'DELETE');
+        }
+
         message.success(`${displayName.trim() || name.trim()} updated`);
         onSaved?.();
         return;
@@ -227,10 +260,11 @@ const CompanyCreate: React.FC<{
         manager: { first_name: first.trim(), last_name: last.trim(), email: email.trim() },
       };
       let body: typeof payload | FormData = payload;
-      if (logo) {
+      if (logo || coverFile) {
         const form = new FormData();
         form.append('payload', JSON.stringify(payload));
-        form.append('logo', logo);
+        if (logo) form.append('logo', logo);
+        if (coverFile) form.append('cover', coverFile);
         body = form;
       }
       const r = await call<{ organization: { id: number }; manager: { invitation_sent: boolean } }>(apiCall, '/admin/organizations', 'POST', body);
@@ -295,7 +329,7 @@ const CompanyCreate: React.FC<{
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                 <strong style={{ fontSize: 13, color: '#0F172A' }}>Portal appearance & live sign-in preview</strong>
                 <span style={{ fontSize: 11.5, color: '#64748B' }}>
-                  {isEdit ? 'Extra copy, cover image and badges are in Portal & Branding' : 'More options (cover photo, copy, links) available after creation'}
+                  {isEdit ? 'Badges, links and white-label toggles are in Portal & Branding' : 'Customize colors, image, text and preview live'}
                 </span>
               </div>
               <div className="og-two">
@@ -312,7 +346,7 @@ const CompanyCreate: React.FC<{
                 {THEME_PRESETS.map(p => {
                   const active = branding.primary_color === p.primary_color && branding.secondary_color === p.secondary_color;
                   return (
-                    <button key={p.id} type="button" onClick={() => setBranding(b => ({ ...b, primary_color: p.primary_color, secondary_color: p.secondary_color, surface_tone: p.surface_tone, hero_style: existingCoverUrl ? b.hero_style : p.hero_style }))}
+                    <button key={p.id} type="button" onClick={() => setBranding(b => ({ ...b, primary_color: p.primary_color, secondary_color: p.secondary_color, surface_tone: p.surface_tone, hero_style: shownCoverUrl && b.hero_style === 'cover' ? 'cover' : p.hero_style }))}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 999, border: active ? '1.5px solid #0F172A' : '1px solid #CBD5E1', background: '#FFFFFF', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                       <span style={{ width: 12, height: 12, borderRadius: '50%', background: p.primary_color }} />
                       {p.name}
@@ -337,20 +371,113 @@ const CompanyCreate: React.FC<{
                   options={[{ value: 'split', label: 'Split' }, { value: 'centered', label: 'Centered' }, { value: 'minimal', label: 'Minimal' }]} />
                 <Segmented size="small" value={branding.surface_tone} onChange={v => setBranding(b => ({ ...b, surface_tone: v as SurfaceTone }))}
                   options={[{ value: 'clean', label: 'Clean' }, { value: 'warm', label: 'Warm' }, { value: 'slate', label: 'Slate' }]} />
-                <Segmented size="small" value={branding.hero_style} onChange={v => setBranding(b => ({ ...b, hero_style: v as HeroStyle }))}
+                <Segmented size="small" value={branding.hero_style} onChange={v => {
+                  const next = v as HeroStyle;
+                  setBranding(b => ({ ...b, hero_style: next, ...(next === 'cover' ? { cover_placement: 'hero' as CoverPlacement } : {}) }));
+                }}
                   options={[
                     { value: 'geometric', label: 'Geometric' },
                     { value: 'gradient', label: 'Gradient' },
                     { value: 'solid', label: 'Solid' },
-                    ...(existingCoverUrl ? [{ value: 'cover', label: 'Cover' }] : []),
+                    ...(shownCoverUrl ? [{ value: 'cover', label: 'Cover' }] : []),
                   ]} />
               </div>
+
+              {/* Background / feature image & opacity */}
+              <div style={{ padding: 10, borderRadius: 10, border: '1px solid #E2E8F0', background: '#FFFFFF', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ width: 72, height: 46, borderRadius: 8, border: '1px solid #E2E8F0', background: '#F1F5F9', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {shownCoverUrl
+                      ? <img src={shownCoverUrl} alt="Portal background preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <PictureOutlined style={{ fontSize: 18, color: '#94A3B8' }} />}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0F172A' }}>Background or feature image</div>
+                    <div style={{ fontSize: 11.5, color: '#64748B' }}>Show behind the top/side banner, across the whole page, or framed inside the hero. PNG, JPG or WebP, max 2 MB.</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <Upload accept=".png,.jpg,.jpeg,.webp" showUploadList={false} beforeUpload={selectCover} disabled={busy}>
+                      <Button size="small" icon={<UploadOutlined />} disabled={busy}>{shownCoverUrl ? 'Change' : 'Add image'}</Button>
+                    </Upload>
+                    {shownCoverUrl && (
+                      <Button size="small" disabled={busy} onClick={() => {
+                        setCoverFile(null);
+                        setCoverRemoved(true);
+                        setBranding(b => (b.hero_style === 'cover' ? { ...b, hero_style: 'geometric' } : b));
+                      }}>
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {shownCoverUrl && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, alignItems: 'center', paddingTop: 8, borderTop: '1px solid #F1F5F9' }}>
+                    <div>
+                      <div style={{ fontSize: 11.5, fontWeight: 700, color: '#475569', marginBottom: 4 }}>Image placement</div>
+                      <Segmented
+                        size="small"
+                        block
+                        value={branding.cover_placement}
+                        onChange={v => {
+                          const next = v as CoverPlacement;
+                          setBranding(b => ({
+                            ...b,
+                            cover_placement: next,
+                            ...(next === 'hero' ? { hero_style: 'cover' } : {}),
+                          }));
+                        }}
+                        options={[
+                          { value: 'hero', label: 'Top / Hero' },
+                          { value: 'full', label: 'Full page' },
+                          { value: 'card', label: 'Feature card' },
+                        ]}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11.5, fontWeight: 700, color: '#475569', marginBottom: 2 }}>
+                        Image opacity: {100 - branding.cover_overlay}%
+                      </div>
+                      <Slider
+                        min={10}
+                        max={100}
+                        value={100 - branding.cover_overlay}
+                        onChange={v => setBranding(b => ({ ...b, cover_overlay: 100 - v }))}
+                        disabled={busy}
+                        style={{ margin: '4px 6px' }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Hero headline & rich body text */}
+              <div className="og-field">
+                <label>Hero headline <em>optional</em></label>
+                <Input
+                  value={branding.headline}
+                  onChange={e => setBranding(b => ({ ...b, headline: e.target.value }))}
+                  maxLength={110}
+                  placeholder={`Prepare for the TCF with ${displayName.trim() || name.trim() || 'Your Company'}`}
+                />
+              </div>
+              <div className="og-field">
+                <label>Hero text & bullet list <em>optional</em></label>
+                <HeroRichEditor
+                  value={branding.hero_body}
+                  onChange={v => setBranding(b => ({ ...b, hero_body: v }))}
+                  disabled={busy}
+                  lang={language}
+                  rows={3}
+                />
+              </div>
+
               <div ref={previewWrapRef} style={{ width: '100%', height: previewHeight, overflow: 'hidden', borderRadius: 10, border: '1px solid #CBD5E1', background: '#FFFFFF', position: 'relative' }}>
                 <div style={{ width: 1140, height: 680, transform: `scale(${previewScale})`, transformOrigin: 'top left', pointerEvents: 'none' }}>
                   <CompanyLoginShell
                     company={{ name: displayName.trim() || name.trim() || 'Your Company', slug: cleanSlug || 'company', logo_url: null, cover_url: null, default_language: language, branding }}
                     logoUrlOverride={shownLogoUrl}
-                    coverUrlOverride={existingCoverUrl}
+                    coverUrlOverride={shownCoverUrl}
                     audience="company_learner"
                     step="email"
                     lang={language}

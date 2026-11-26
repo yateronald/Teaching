@@ -14,6 +14,7 @@ const { OrgError } = require('./organizationService');
 
 const LAYOUTS = ['split', 'centered', 'minimal'];
 const HERO_STYLES = ['geometric', 'gradient', 'solid', 'cover'];
+const COVER_PLACEMENTS = ['hero', 'full', 'card'];
 const SURFACE_TONES = ['clean', 'warm', 'slate'];
 const BUTTON_STYLES = ['rounded', 'pill', 'sharp'];
 
@@ -27,6 +28,7 @@ const RESERVED_SLUGS = new Set([
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CTRL_RE = /[\u0000-\u001f\u007f]/g;
+const MULTILINE_CTRL_RE = /[\u0000-\u0009\u000b-\u001f\u007f]/g;
 
 const DEFAULTS = Object.freeze({
     primary_color: '#16325C',
@@ -34,10 +36,12 @@ const DEFAULTS = Object.freeze({
     surface_tone: 'clean',
     login_layout: 'split',
     hero_style: 'geometric',
-    cover_overlay: 62,
+    cover_placement: 'hero',
+    cover_overlay: 55,
     button_style: 'rounded',
     tagline: '',
     headline: '',
+    hero_body: '',
     welcome_message: '',
     highlights: null,
     show_highlights: true,
@@ -52,6 +56,7 @@ const DEFAULTS = Object.freeze({
 const LIMITS = {
     tagline: 80,
     headline: 110,
+    hero_body: 1000,
     welcome_message: 240,
     footer_text: 140,
     highlight_item: 36,
@@ -61,6 +66,15 @@ const LIMITS = {
 };
 
 const cleanText = (val) => String(val ?? '').replace(CTRL_RE, '').replace(/\s+/g, ' ').trim();
+const cleanMultilineText = (val) => String(val ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(MULTILINE_CTRL_RE, '')
+    .split('\n')
+    .slice(0, 18)
+    .map(line => line.replace(/[ \t]+$/g, ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
 function isPrivateOrLocalHost(hostname) {
     const h = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
@@ -109,7 +123,7 @@ function normalizeBranding(raw) {
         : DEFAULTS.secondary_color;
     const overlayNum = Number(src.cover_overlay);
     const cover_overlay = Number.isFinite(overlayNum)
-        ? Math.min(85, Math.max(35, Math.round(overlayNum)))
+        ? Math.min(90, Math.max(0, Math.round(overlayNum)))
         : DEFAULTS.cover_overlay;
 
     let highlights = null;
@@ -127,10 +141,12 @@ function normalizeBranding(raw) {
         surface_tone: SURFACE_TONES.includes(src.surface_tone) ? src.surface_tone : DEFAULTS.surface_tone,
         login_layout: LAYOUTS.includes(src.login_layout) ? src.login_layout : DEFAULTS.login_layout,
         hero_style: HERO_STYLES.includes(src.hero_style) ? src.hero_style : DEFAULTS.hero_style,
+        cover_placement: COVER_PLACEMENTS.includes(src.cover_placement) ? src.cover_placement : DEFAULTS.cover_placement,
         cover_overlay,
         button_style: BUTTON_STYLES.includes(src.button_style) ? src.button_style : DEFAULTS.button_style,
         tagline: cleanText(src.tagline).slice(0, LIMITS.tagline),
         headline: cleanText(src.headline).slice(0, LIMITS.headline),
+        hero_body: cleanMultilineText(src.hero_body).slice(0, LIMITS.hero_body),
         welcome_message: cleanText(src.welcome_message).slice(0, LIMITS.welcome_message),
         highlights,
         show_highlights: typeof src.show_highlights === 'boolean' ? src.show_highlights : DEFAULTS.show_highlights,
@@ -178,14 +194,18 @@ function validateBrandingPatch(input, { current = {}, allowAdminFields = false }
         if (!HERO_STYLES.includes(input.hero_style)) throw new OrgError('BAD_BRANDING', 'Unsupported background style.');
         out.hero_style = input.hero_style;
     }
+    if ('cover_placement' in input) {
+        if (!COVER_PLACEMENTS.includes(input.cover_placement)) throw new OrgError('BAD_BRANDING', 'Unsupported image placement.');
+        out.cover_placement = input.cover_placement;
+    }
     if ('button_style' in input) {
         if (!BUTTON_STYLES.includes(input.button_style)) throw new OrgError('BAD_BRANDING', 'Unsupported button style.');
         out.button_style = input.button_style;
     }
     if ('cover_overlay' in input) {
         const n = Number(input.cover_overlay);
-        if (!Number.isFinite(n) || n < 35 || n > 85) {
-            throw new OrgError('BAD_BRANDING', 'Cover overlay darkness must be between 35 and 85.');
+        if (!Number.isFinite(n) || n < 0 || n > 90) {
+            throw new OrgError('BAD_BRANDING', 'Cover overlay value must be between 0 and 90.');
         }
         out.cover_overlay = Math.round(n);
     }
@@ -198,6 +218,14 @@ function validateBrandingPatch(input, { current = {}, allowAdminFields = false }
             }
             out[key] = val;
         }
+    }
+
+    if ('hero_body' in input) {
+        const val = cleanMultilineText(input.hero_body);
+        if (val.length > LIMITS.hero_body) {
+            throw new OrgError('BAD_BRANDING', `Hero text is limited to ${LIMITS.hero_body} characters.`);
+        }
+        out.hero_body = val;
     }
 
     if ('highlights' in input) {
@@ -271,6 +299,7 @@ module.exports = {
     DEFAULTS,
     LAYOUTS,
     HERO_STYLES,
+    COVER_PLACEMENTS,
     SURFACE_TONES,
     BUTTON_STYLES,
     RESERVED_SLUGS,

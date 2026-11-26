@@ -8,10 +8,12 @@ class PortalBranding {
   final String surfaceTone; // clean | warm | slate
   final String loginLayout; // split | centered | minimal
   final String heroStyle; // geometric | gradient | solid | cover
-  final int coverOverlay; // 35..85
+  final String coverPlacement; // hero | full | card
+  final int coverOverlay; // 0..90 (displayed as image opacity = 100 - coverOverlay)
   final String buttonStyle; // rounded | pill | sharp
   final String tagline;
   final String headline;
+  final String heroBody;
   final String welcomeMessage;
   final List<String>? highlights;
   final bool showHighlights;
@@ -28,10 +30,12 @@ class PortalBranding {
     this.surfaceTone = 'clean',
     this.loginLayout = 'split',
     this.heroStyle = 'geometric',
-    this.coverOverlay = 62,
+    this.coverPlacement = 'hero',
+    this.coverOverlay = 55,
     this.buttonStyle = 'rounded',
     this.tagline = '',
     this.headline = '',
+    this.heroBody = '',
     this.welcomeMessage = '',
     this.highlights,
     this.showHighlights = true,
@@ -45,8 +49,15 @@ class PortalBranding {
 
   static const _layouts = ['split', 'centered', 'minimal'];
   static const _heroes = ['geometric', 'gradient', 'solid', 'cover'];
+  static const _placements = ['hero', 'full', 'card'];
   static const _surfaces = ['clean', 'warm', 'slate'];
   static const _buttons = ['rounded', 'pill', 'sharp'];
+
+  static String _cleanMultiline(dynamic raw, int maxLen) {
+    if (raw == null) return '';
+    final normalized = '$raw'.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
+    return normalized.length > maxLen ? normalized.substring(0, maxLen) : normalized;
+  }
 
   factory PortalBranding.fromJson(Map<String, dynamic>? j) {
     if (j == null || j.isEmpty) return const PortalBranding();
@@ -55,7 +66,7 @@ class PortalBranding {
     final secondaryRaw = str('secondary_color').toUpperCase();
     final rawOverlay = j['cover_overlay'] is num
         ? (j['cover_overlay'] as num).round()
-        : int.tryParse(str('cover_overlay')) ?? 62;
+        : int.tryParse(str('cover_overlay')) ?? 55;
     final rawHighlights = j['highlights'];
     List<String>? parsedHighlights;
     if (rawHighlights is List) {
@@ -72,10 +83,12 @@ class PortalBranding {
       surfaceTone: _surfaces.contains(j['surface_tone']) ? '${j['surface_tone']}' : 'clean',
       loginLayout: _layouts.contains(j['login_layout']) ? '${j['login_layout']}' : 'split',
       heroStyle: _heroes.contains(j['hero_style']) ? '${j['hero_style']}' : 'geometric',
-      coverOverlay: rawOverlay.clamp(35, 85),
+      coverPlacement: _placements.contains(j['cover_placement']) ? '${j['cover_placement']}' : 'hero',
+      coverOverlay: rawOverlay.clamp(0, 90),
       buttonStyle: _buttons.contains(j['button_style']) ? '${j['button_style']}' : 'rounded',
       tagline: str('tagline'),
       headline: str('headline'),
+      heroBody: _cleanMultiline(j['hero_body'], 1000),
       welcomeMessage: str('welcome_message'),
       highlights: parsedHighlights,
       showHighlights: j['show_highlights'] is bool ? j['show_highlights'] as bool : true,
@@ -94,10 +107,12 @@ class PortalBranding {
         'surface_tone': surfaceTone,
         'login_layout': loginLayout,
         'hero_style': heroStyle,
+        'cover_placement': coverPlacement,
         'cover_overlay': coverOverlay,
         'button_style': buttonStyle,
         'tagline': tagline,
         'headline': headline,
+        'hero_body': heroBody,
         'welcome_message': welcomeMessage,
         'highlights': highlights,
         'show_highlights': showHighlights,
@@ -115,10 +130,12 @@ class PortalBranding {
     String? surfaceTone,
     String? loginLayout,
     String? heroStyle,
+    String? coverPlacement,
     int? coverOverlay,
     String? buttonStyle,
     String? tagline,
     String? headline,
+    String? heroBody,
     String? welcomeMessage,
     List<String>? highlights,
     bool clearHighlights = false,
@@ -136,10 +153,12 @@ class PortalBranding {
       surfaceTone: surfaceTone ?? this.surfaceTone,
       loginLayout: loginLayout ?? this.loginLayout,
       heroStyle: heroStyle ?? this.heroStyle,
+      coverPlacement: coverPlacement ?? this.coverPlacement,
       coverOverlay: coverOverlay ?? this.coverOverlay,
       buttonStyle: buttonStyle ?? this.buttonStyle,
       tagline: tagline ?? this.tagline,
       headline: headline ?? this.headline,
+      heroBody: heroBody ?? this.heroBody,
       welcomeMessage: welcomeMessage ?? this.welcomeMessage,
       highlights: clearHighlights ? null : (highlights ?? this.highlights),
       showHighlights: showHighlights ?? this.showHighlights,
@@ -166,10 +185,12 @@ class PortalBranding {
         surfaceTone == other.surfaceTone &&
         loginLayout == other.loginLayout &&
         heroStyle == other.heroStyle &&
+        coverPlacement == other.coverPlacement &&
         coverOverlay == other.coverOverlay &&
         buttonStyle == other.buttonStyle &&
         tagline == other.tagline &&
         headline == other.headline &&
+        heroBody == other.heroBody &&
         welcomeMessage == other.welcomeMessage &&
         sameHighlights &&
         showHighlights == other.showHighlights &&
@@ -188,10 +209,12 @@ class PortalBranding {
         surfaceTone,
         loginLayout,
         heroStyle,
+        coverPlacement,
         coverOverlay,
         buttonStyle,
         tagline,
         headline,
+        heroBody,
         welcomeMessage,
         highlights == null ? null : Object.hashAll(highlights!),
         showHighlights,

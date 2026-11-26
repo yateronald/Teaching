@@ -46,6 +46,16 @@
   background-position: center;
 }
 
+.cp-hero-img {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background-size: cover;
+  background-position: center;
+  opacity: var(--cp-image-opacity, 0.45);
+  pointer-events: none;
+}
+
 .cp-hero-bg--solid {
   background: var(--cp-hero-deep);
 }
@@ -82,15 +92,208 @@
 .cp-hero-style--cover .cp-hero-scrim {
   background: linear-gradient(
     180deg,
-    rgba(9, 17, 31, calc(var(--cp-overlay-alpha, 0.62) * 0.78)) 0%,
-    rgba(9, 17, 31, calc(var(--cp-overlay-alpha, 0.62) * 0.65)) 42%,
-    rgba(9, 17, 31, calc(min(0.95, var(--cp-overlay-alpha, 0.62) + 0.18))) 100%
+    rgba(9, 17, 31, 0.14) 0%,
+    rgba(9, 17, 31, 0.08) 45%,
+    rgba(9, 17, 31, 0.34) 100%
   );
 }
 
 .cp-hero-mesh {
   z-index: 1;
   background: radial-gradient(520px circle at 92% 8%, rgba(255, 255, 255, 0.08), transparent 60%);
+}
+
+/* ── Full-Page Background Mode (cover_placement === 'full') ── */
+.cp-full-bg-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.cp-full-bg-base {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(150deg, var(--cp-hero-deep) 0%, var(--cp-hero-mid) 58%, var(--cp-hero-glow) 100%);
+}
+
+.cp-full-bg-img {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: var(--cp-image-opacity, 0.45);
+}
+
+.cp-full-bg-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(9, 17, 31, 0.16) 0%,
+    rgba(9, 17, 31, 0.12) 50%,
+    rgba(9, 17, 31, 0.36) 100%
+  );
+}
+
+.cp-cover-full {
+  background: var(--cp-hero-deep);
+}
+
+.cp-cover-full .cp-split-side {
+  background: linear-gradient(90deg, rgba(9, 17, 31, 0.42) 0%, rgba(9, 17, 31, 0.16) 100%);
+  backdrop-filter: blur(2px);
+}
+
+.cp-cover-full .cp-split-main {
+  position: relative;
+  z-index: 2;
+  background: transparent;
+}
+
+.cp-cover-full .cp-centered-top,
+.cp-cover-full .cp-centered-main,
+.cp-cover-full .cp-minimal-top,
+.cp-cover-full .cp-minimal-main {
+  position: relative;
+  z-index: 2;
+}
+
+.cp-cover-full .cp-footer,
+.cp-cover-full .cp-powered-inline {
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.cp-cover-full .cp-minimal-headline {
+  color: #FFFFFF;
+  text-shadow: 0 2px 12px rgba(9, 17, 31, 0.4);
+}
+
+.cp-cover-full .cp-side-title,
+.cp-cover-full .cp-centered-headline,
+.cp-hero-style--cover .cp-side-title,
+.cp-hero-style--cover .cp-centered-headline {
+  text-shadow: 0 2px 14px rgba(9, 17, 31, 0.42);
+}
+
+/* ── Feature Showcase Card Image (cover_placement === 'card') ── */
+.cp-feature-card {
+  width: 100%;
+  max-width: 440px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(9, 17, 31, 0.22);
+  box-shadow: 0 18px 40px -16px rgba(9, 17, 31, 0.55);
+  margin-bottom: 18px;
+}
+
+.cp-feature-card img {
+  display: block;
+  width: 100%;
+  max-height: 196px;
+  object-fit: cover;
+  opacity: var(--cp-image-opacity, 1);
+}
+
+.cp-feature-card--centered {
+  margin: 0 auto 18px;
+  max-width: 480px;
+}
+
+.cp-feature-card--light {
+  border-color: var(--cp-line);
+  background: #FFFFFF;
+  box-shadow: 0 12px 28px -12px rgba(15, 23, 42, 0.16);
+}
+
+/* ── Rich Formatted Hero Body (.cp-rich) ── */
+.cp-rich {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 460px;
+}
+
+.cp-rich--center {
+  margin-inline: auto;
+  text-align: center;
+  max-width: 540px;
+}
+
+.cp-rich--light {
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 4px rgba(9, 17, 31, 0.3);
+}
+
+.cp-rich--dark {
+  color: var(--cp-body);
+}
+
+.cp-rich-h {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: inherit;
+}
+
+.cp-rich--light .cp-rich-h { color: #FFFFFF; }
+.cp-rich--dark .cp-rich-h { color: var(--cp-ink); }
+
+.cp-rich-p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.cp-rich-p strong,
+.cp-rich-list strong {
+  font-weight: 700;
+}
+
+.cp-rich--light strong { color: #FFFFFF; }
+.cp-rich--dark strong { color: var(--cp-ink); }
+
+.cp-rich-list {
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  text-align: left;
+}
+
+.cp-rich--center .cp-rich-list {
+  align-self: center;
+  max-width: 460px;
+}
+
+.cp-rich-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13.5px;
+  line-height: 1.48;
+}
+
+.cp-rich-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--cp-secondary, #34D399);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14);
+}
+
+.cp-rich--dark .cp-rich-dot {
+  background: var(--cp-primary);
+  box-shadow: 0 0 0 3px var(--cp-primary-soft);
 }
 
 /* ── Brand lockup & Logo tiles ── */
@@ -290,8 +493,8 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
-  padding: 40px 0 28px;
+  justify-content: center;
+  padding: 28px 0 24px;
 }
 
 .cp-side-eyebrow {
@@ -442,15 +645,15 @@
   overflow-x: hidden;
 }
 
-.cp-centered-backdrop {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 360px;
+.cp-centered-hero {
+  position: relative;
   overflow: hidden;
   isolation: isolate;
-  z-index: 0;
+  padding-bottom: 100px;
+}
+
+.cp-centered-hero.is-transparent {
+  padding-bottom: 24px;
 }
 
 .cp-centered-top {
@@ -473,14 +676,24 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-start;
+  margin-top: -76px;
+  padding: 0 20px 36px;
+}
+
+.cp-cover-full .cp-centered-main {
+  margin-top: 0;
   justify-content: center;
-  padding: 24px 20px 36px;
+  padding-top: 8px;
 }
 
 .cp-centered-intro {
+  position: relative;
+  z-index: 3;
   text-align: center;
-  max-width: 600px;
-  margin-bottom: 24px;
+  max-width: 640px;
+  margin: 26px auto 0;
+  padding: 0 20px;
 }
 
 .cp-centered-headline {
@@ -498,7 +711,16 @@
   flex-direction: column;
 }
 
+.cp-minimal-banner {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  padding-bottom: 84px;
+}
+
 .cp-minimal-top {
+  position: relative;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -510,6 +732,8 @@
 }
 
 .cp-minimal-main {
+  position: relative;
+  z-index: 4;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -518,10 +742,23 @@
   padding: 24px 20px 40px;
 }
 
+.cp-minimal-main.is-after-banner {
+  justify-content: flex-start;
+  margin-top: -64px;
+  padding-top: 0;
+}
+
 .cp-minimal-header {
   text-align: center;
-  max-width: 520px;
+  max-width: 560px;
   margin-bottom: 24px;
+}
+
+.cp-minimal-header.is-on-banner {
+  position: relative;
+  z-index: 3;
+  margin: 24px auto 0;
+  padding: 0 20px;
 }
 
 .cp-minimal-headline {
@@ -531,6 +768,11 @@
   letter-spacing: -0.02em;
   line-height: 1.22;
   color: var(--cp-ink);
+}
+
+.cp-minimal-headline.is-light {
+  color: #FFFFFF;
+  text-shadow: 0 2px 12px rgba(9, 17, 31, 0.36);
 }
 
 /* ── Elevated Sign-In Card ── */

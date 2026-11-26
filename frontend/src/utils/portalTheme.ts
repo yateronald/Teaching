@@ -3,6 +3,7 @@ import type { ThemeConfig } from 'antd';
 
 export type LoginLayout = 'split' | 'centered' | 'minimal';
 export type HeroStyle = 'geometric' | 'gradient' | 'solid' | 'cover';
+export type CoverPlacement = 'hero' | 'full' | 'card';
 export type SurfaceTone = 'clean' | 'warm' | 'slate';
 export type ButtonStyle = 'rounded' | 'pill' | 'sharp';
 
@@ -12,10 +13,12 @@ export interface PortalBranding {
   surface_tone: SurfaceTone;
   login_layout: LoginLayout;
   hero_style: HeroStyle;
+  cover_placement: CoverPlacement;
   cover_overlay: number;
   button_style: ButtonStyle;
   tagline: string;
   headline: string;
+  hero_body: string;
   welcome_message: string;
   highlights: string[] | null;
   show_highlights: boolean;
@@ -43,10 +46,12 @@ export const DEFAULT_PORTAL_BRANDING: PortalBranding = {
   surface_tone: 'clean',
   login_layout: 'split',
   hero_style: 'geometric',
-  cover_overlay: 62,
+  cover_placement: 'hero',
+  cover_overlay: 55,
   button_style: 'rounded',
   tagline: '',
   headline: '',
+  hero_body: '',
   welcome_message: '',
   highlights: null,
   show_highlights: true,
@@ -157,6 +162,9 @@ export function normalizePortalBranding(raw: unknown): PortalBranding {
   const hero = (['geometric', 'gradient', 'solid', 'cover'] as const).includes(src.hero_style as HeroStyle)
     ? (src.hero_style as HeroStyle)
     : DEFAULT_PORTAL_BRANDING.hero_style;
+  const placement = (['hero', 'full', 'card'] as const).includes(src.cover_placement as CoverPlacement)
+    ? (src.cover_placement as CoverPlacement)
+    : DEFAULT_PORTAL_BRANDING.cover_placement;
   const tone = (['clean', 'warm', 'slate'] as const).includes(src.surface_tone as SurfaceTone)
     ? (src.surface_tone as SurfaceTone)
     : DEFAULT_PORTAL_BRANDING.surface_tone;
@@ -164,9 +172,9 @@ export function normalizePortalBranding(raw: unknown): PortalBranding {
     ? (src.button_style as ButtonStyle)
     : DEFAULT_PORTAL_BRANDING.button_style;
 
-  const overlayNum = Number(src.cover_overlay);
+  const overlayNum = src.cover_overlay === undefined || src.cover_overlay === null ? NaN : Number(src.cover_overlay);
   const cover_overlay = Number.isFinite(overlayNum)
-    ? Math.min(85, Math.max(35, Math.round(overlayNum)))
+    ? Math.min(90, Math.max(0, Math.round(overlayNum)))
     : DEFAULT_PORTAL_BRANDING.cover_overlay;
 
   const primary = typeof src.primary_color === 'string' && HEX_RE.test(src.primary_color)
@@ -187,16 +195,26 @@ export function normalizePortalBranding(raw: unknown): PortalBranding {
     ? src.support_email.trim().toLowerCase().slice(0, 120)
     : '';
 
+  const heroBody = Array.from(String(src.hero_body || '').replace(/\r\n?/g, '\n'))
+    .filter(ch => {
+      const code = ch.charCodeAt(0);
+      return code === 10 || (code >= 32 && code !== 127);
+    })
+    .join('')
+    .slice(0, 1000);
+
   return {
     primary_color: primary,
     secondary_color: secondary,
     surface_tone: tone,
     login_layout: layout,
     hero_style: hero,
+    cover_placement: placement,
     cover_overlay,
     button_style: btn,
     tagline: String(src.tagline || '').trim().slice(0, 80),
     headline: String(src.headline || '').trim().slice(0, 110),
+    hero_body: heroBody,
     welcome_message: String(src.welcome_message || '').trim().slice(0, 240),
     highlights,
     show_highlights: typeof src.show_highlights === 'boolean' ? src.show_highlights : DEFAULT_PORTAL_BRANDING.show_highlights,
@@ -262,6 +280,9 @@ export function portalCssVars(b: PortalBranding): React.CSSProperties {
 
   const btnRadius = b.button_style === 'pill' ? '999px' : b.button_style === 'sharp' ? '6px' : '10px';
   const inputRadius = b.button_style === 'sharp' ? '6px' : '10px';
+  const overlay = Number.isFinite(b.cover_overlay)
+    ? Math.min(90, Math.max(0, Math.round(b.cover_overlay)))
+    : DEFAULT_PORTAL_BRANDING.cover_overlay;
 
   return {
     '--cp-primary': primary,
@@ -279,7 +300,8 @@ export function portalCssVars(b: PortalBranding): React.CSSProperties {
     '--cp-surface': SURFACE_MAP[b.surface_tone] || SURFACE_MAP.clean,
     '--cp-radius-btn': btnRadius,
     '--cp-radius-input': inputRadius,
-    '--cp-overlay-alpha': String((b.cover_overlay || 62) / 100),
+    '--cp-overlay-alpha': String(overlay / 100),
+    '--cp-image-opacity': String((100 - overlay) / 100),
   } as React.CSSProperties;
 }
 

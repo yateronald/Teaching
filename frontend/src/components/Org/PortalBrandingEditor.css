@@ -360,6 +360,47 @@
   border-radius: 10px;
 }
 
+.pbe-rich-editor {
+  border: 1px solid #D9E2EC;
+  border-radius: 10px;
+  background: #FFFFFF;
+  overflow: hidden;
+}
+
+.pbe-rich-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  background: #F8FAFC;
+  border-bottom: 1px solid #E2E8F0;
+}
+
+.pbe-rich-count {
+  font-size: 11px;
+  color: #64748B;
+  font-variant-numeric: tabular-nums;
+  padding-right: 4px;
+}
+
+.pbe-rich-editor .ant-input {
+  border: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pbe-cover-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+}
+
 .pbe-badges-list {
   display: flex;
   flex-wrap: wrap;

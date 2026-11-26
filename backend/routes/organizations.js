@@ -144,8 +144,10 @@ router.get('/', async (req, res) => {
     } catch (err) { sendError(res, err, 'GET /admin/organizations'); }
 });
 
-router.post('/', logos.receive, async (req, res) => {
+router.post('/', logos.receiveCreateAssets, async (req, res) => {
     let created = null;
+    const logoFile = req.files?.logo?.[0] || req.file || null;
+    const coverFile = req.files?.cover?.[0] || null;
     try {
         let body = req.body || {};
         if (req.is('multipart/form-data')) {
@@ -189,25 +191,35 @@ router.post('/', logos.receive, async (req, res) => {
         );
         await replaceContent(req.db, created.id, content);
         if (ee || eo) await orgs.adjustReserve(req.db, created.id, 'grant', { ee, eo }, req.user.id, 'Initial credits');
-        if (req.file) created = await logos.saveLogo(req.db, created, req.file);
+        if (logoFile) created = await logos.saveLogo(req.db, created, logoFile);
+        if (coverFile) created = await logos.saveCover(req.db, created, coverFile);
         const account = await accounts.createAccount(req.db, created, 'org_admin', manager, req.user.id);
         await orgs.audit(req.db, created.id, req.user.id, 'company_created', {
             name: created.name, access_ends_at: created.access_ends_at, seat_limit: created.seat_limit, ee_credits: ee, eo_credits: eo,
             content: content.length,
         });
-        if (req.file) await orgs.audit(req.db, created.id, req.user.id, 'logo_changed');
+        if (logoFile) await orgs.audit(req.db, created.id, req.user.id, 'logo_changed');
+        if (coverFile) await orgs.audit(req.db, created.id, req.user.id, 'cover_changed');
         const org = await req.db.get('SELECT * FROM organizations WHERE id = $1', [created.id]);
         res.status(201).json({ organization: await queries.describe(req.db, org), manager: account });
     } catch (err) {
         // A company without its first manager is useless: undo it (it has no account yet).
         if (created) {
-            await req.db.get(`DELETE FROM organizations WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE organization_id = $1) RETURNING logo_file_id`, [created.id])
-                .then(removed => logos.deleteStoredLogo(removed?.logo_file_id))
+            const hasCoverCol = await hasColumn(req.db, 'organizations', 'cover_file_id').catch(() => false);
+            await req.db.get(
+                `DELETE FROM organizations WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE organization_id = $1) RETURNING logo_file_id${hasCoverCol ? ', cover_file_id' : ''}`,
+                [created.id]
+            )
+                .then(removed => Promise.all([
+                    logos.deleteStoredLogo(removed?.logo_file_id),
+                    logos.deleteStoredLogo(removed?.cover_file_id),
+                ]))
                 .catch(e => console.error('[organizations] could not undo a half-created company:', e.message));
         }
         sendError(res, err, 'POST /admin/organizations');
     } finally {
-        logos.cleanup(req.file);
+        logos.cleanup(logoFile);
+        logos.cleanup(coverFile);
     }
 });
 

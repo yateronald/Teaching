@@ -28,9 +28,10 @@ import {
   validateHex,
   validateHttpsUrl,
 } from '../../utils/portalTheme';
-import type { ButtonStyle, HeroStyle, LoginLayout, PortalBranding, SurfaceTone } from '../../utils/portalTheme';
+import type { ButtonStyle, CoverPlacement, HeroStyle, LoginLayout, PortalBranding, SurfaceTone } from '../../utils/portalTheme';
 import CompanyLoginShell from '../Auth/CompanyLoginShell';
 import type { CompanyBrand } from '../Auth/signInAudience';
+import HeroRichEditor from './HeroRichEditor';
 import { call, errorText } from './orgModel';
 import type { Company } from './orgModel';
 import './PortalBrandingEditor.css';
@@ -355,6 +356,48 @@ const PortalBrandingEditor: React.FC<PortalBrandingEditorProps> = ({
             </div>
           </div>
         </div>
+
+        {company.brand?.cover_url && (
+          <div className="pbe-cover-options">
+            <div className="pbe-control-col">
+              <label>{tr('Image placement', 'Position de l’image')}</label>
+              <Segmented
+                block
+                disabled={readOnly}
+                value={draft.cover_placement}
+                onChange={v => {
+                  const next = v as CoverPlacement;
+                  patch({
+                    cover_placement: next,
+                    ...(next === 'hero' ? { hero_style: 'cover' } : {}),
+                  });
+                }}
+                options={[
+                  { value: 'hero', label: tr('Top / Hero', 'Bannière / Panneau') },
+                  { value: 'full', label: tr('Full page', 'Page entière') },
+                  { value: 'card', label: tr('Feature image', 'Image encadrée') },
+                ]}
+              />
+            </div>
+
+            <div className="pbe-control-col">
+              <label>{tr('Image opacity', 'Opacité de l’image')}: {100 - draft.cover_overlay}%</label>
+              <Slider
+                min={10}
+                max={100}
+                value={100 - draft.cover_overlay}
+                onChange={v => patch({ cover_overlay: 100 - v })}
+                disabled={readOnly}
+              />
+              <small className="pbe-hint">
+                {tr(
+                  'Lower opacity blends your brand color over the photo to keep text sharp and readable.',
+                  'Réduire l’opacité renforce la teinte de votre marque pour garder le texte parfaitement lisible.'
+                )}
+              </small>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Theme presets */}
@@ -460,7 +503,13 @@ const PortalBrandingEditor: React.FC<PortalBrandingEditorProps> = ({
               block
               disabled={readOnly}
               value={draft.hero_style}
-              onChange={v => patch({ hero_style: v as HeroStyle })}
+              onChange={v => {
+                const next = v as HeroStyle;
+                patch({
+                  hero_style: next,
+                  ...(next === 'cover' ? { cover_placement: 'hero' as CoverPlacement } : {}),
+                });
+              }}
               options={[
                 { value: 'geometric', label: tr('Geometric', 'Géométrique') },
                 { value: 'gradient', label: tr('Gradient', 'Dégradé') },
@@ -501,19 +550,6 @@ const PortalBrandingEditor: React.FC<PortalBrandingEditorProps> = ({
               ]}
             />
           </div>
-
-          {draft.hero_style === 'cover' && company.brand?.cover_url && (
-            <div className="pbe-control-col">
-              <label>{tr('Cover scrim darkness', 'Contraste de l’image')}: {draft.cover_overlay}%</label>
-              <Slider
-                min={35}
-                max={85}
-                value={draft.cover_overlay}
-                onChange={v => patch({ cover_overlay: v })}
-                disabled={readOnly}
-              />
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -543,6 +579,22 @@ const PortalBrandingEditor: React.FC<PortalBrandingEditorProps> = ({
             placeholder={tr(`Prepare for the TCF with ${previewCompany.name}`, `Préparez le TCF avec ${previewCompany.name}`)}
             disabled={readOnly}
           />
+        </div>
+
+        <div className="pbe-field">
+          <label>{tr('Hero text & bullet list', 'Texte & liste de présentation')} <em>{tr('optional', 'optionnel')}</em></label>
+          <HeroRichEditor
+            value={draft.hero_body}
+            onChange={v => patch({ hero_body: v })}
+            disabled={readOnly}
+            lang={mode === 'admin' ? 'en' : previewLang}
+          />
+          <small className="pbe-hint">
+            {tr(
+              'Use bold, italic, bullet points or headings to fill the hero showcase or top banner.',
+              'Ajoutez du gras, de l’italique, des listes à puces ou un sous-titre dans la zone de présentation.'
+            )}
+          </small>
         </div>
 
         <div className="pbe-field">
