@@ -97,5 +97,10 @@ button.rxm-line[aria-pressed="true"] { border-color: #c29445; background: #fff8e
   .rxm-step-dot { width: 22px; }
   .rxm-doc-header { grid-template-columns: auto minmax(0, 1fr); }
   .rxm-doc-header > span { grid-column: 2; }
+  .rxm-line { overflow-wrap: break-word; }
   .rxm-actions .lp-btn { width: 100%; }
+}
+@media (max-width: 480px) {
+  .rxm-stages { grid-template-columns: minmax(0, 1fr); }
+  .rxm-stages li { display: flex; align-items: center; gap: 10px; min-height: 0; padding: 8px 10px; }
 }

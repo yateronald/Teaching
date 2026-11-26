@@ -337,8 +337,8 @@ function Catalogue({ lang }: { lang: Lang }) {
             {q && <button type="button" onClick={() => setQ('')} aria-label={fr ? 'Effacer' : 'Clear'}><CloseOutlined /></button>}
           </label>
           <div className="rxl-view-toggle" role="group" aria-label={fr ? 'Mode d’affichage' : 'Display mode'}>
-            <button type="button" className={view === 'grid' ? 'is-on' : ''} aria-pressed={view === 'grid'} onClick={() => setView('grid')}><AppstoreOutlined /> {fr ? 'Grille' : 'Grid'}</button>
-            <button type="button" className={view === 'list' ? 'is-on' : ''} aria-pressed={view === 'list'} onClick={() => setView('list')}><BarsOutlined /> {fr ? 'Liste' : 'List'}</button>
+            <button type="button" className={view === 'grid' ? 'is-on' : ''} aria-pressed={view === 'grid'} aria-label={fr ? 'Grille' : 'Grid'} onClick={() => setView('grid')}><AppstoreOutlined /><span className="hx-vt-lbl"> {fr ? 'Grille' : 'Grid'}</span></button>
+            <button type="button" className={view === 'list' ? 'is-on' : ''} aria-pressed={view === 'list'} aria-label={fr ? 'Liste' : 'List'} onClick={() => setView('list')}><BarsOutlined /><span className="hx-vt-lbl"> {fr ? 'Liste' : 'List'}</span></button>
           </div>
         </div>
       </div>

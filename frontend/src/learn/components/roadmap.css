@@ -81,9 +81,9 @@
 /* Side cards with a picture */
 .sp-workspace .sp-side-card { overflow: hidden; transition: transform 0.25s, box-shadow 0.25s; }
 .sp-workspace .sp-side-card:hover { transform: translateY(-2px); box-shadow: 0 16px 32px -22px rgba(11, 23, 51, 0.4); }
-.sp-side-media { position: relative; width: calc(100% + 40px); margin: -18px -20px 14px; overflow: hidden; }
-.sp-side-photo { display: block; width: calc(100% + 40px); max-width: none; margin: -18px -20px 14px; aspect-ratio: 16 / 7; object-fit: cover; }
-.sp-side-media .sp-side-photo { width: 100%; margin: 0; }
+.sp-side-media { position: relative; width: calc(100% + 40px); aspect-ratio: 16 / 7; margin: -18px -20px 14px; overflow: hidden; background: var(--paper-2); }
+.sp-side-photo { display: block; width: calc(100% + 40px); max-width: none; margin: -18px -20px 14px; aspect-ratio: 16 / 7; object-fit: cover; background: var(--paper-2); }
+.sp-side-media .sp-side-photo { width: 100%; height: 100%; margin: 0; aspect-ratio: auto; }
 .sp-side-media .sp-step-lock-badge { top: 10px; right: 10px; width: 26px; height: 26px; font-size: 12px; }
 
 @media (max-width: 760px) {
@@ -91,10 +91,14 @@
   .sp-workspace .sp-mod-head { grid-template-columns: 44px minmax(0, 1fr) 28px; }
 }
 @media (max-width: 640px) {
-  .sp-workspace .sp-step-link { grid-template-columns: 22px 72px minmax(0, 1fr); gap: 10px; }
-  .sp-step-thumb { width: 72px; }
+  .sp-workspace .sp-modules::before { left: 32px; }
+  .sp-workspace .sp-mod-head { grid-template-columns: 38px minmax(0, 1fr) 24px; }
+  .sp-workspace .sp-step-link { grid-template-columns: 22px 76px minmax(0, 1fr); gap: 8px 10px; padding: 11px 12px; align-items: start; }
+  .sp-step-thumb { width: 76px; border-radius: 9px; }
+  .sp-workspace .sp-step-check { margin-top: 2px; }
   .sp-workspace .sp-step-copy { grid-column: auto; }
-  .sp-workspace .sp-step-copy .sp-skill-tag { grid-column: auto; }
+  .sp-workspace .sp-step-copy strong { font-size: 14.5px; line-height: 1.28; }
+  .sp-workspace .sp-step-copy .sp-skill-tag { grid-column: auto; margin-bottom: 3px; }
   .sp-workspace .sp-step-end { grid-column: 1 / -1; }
   .sp-ring { width: 50px; height: 50px; }
 }

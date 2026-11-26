@@ -180,12 +180,18 @@
   .dlg-head { grid-template-columns: minmax(0, 1fr); }
   .dlg-head-visual { order: -1; aspect-ratio: 2.4 / 1; max-height: 170px; }
   .dlg-player { grid-template-columns: auto minmax(0, 1fr); }
-  .dlg-tools { grid-column: 1 / -1; }
+  .dlg-tools { grid-column: 1 / -1; flex-wrap: wrap; }
   .dlg-slow { margin-inline-start: auto; }
   .dlg-player-card.is-pinned .dlg-tools { grid-column: auto; }
   .dlg-player-card.is-pinned .dlg-player { grid-template-columns: auto minmax(0, 1fr) auto; }
   .dlg-player-card.is-pinned .dlg-now-who, .dlg-player-card.is-pinned .dlg-slow { display: none; }
   .dlg-timeline button { min-width: 52px; }
+  .dlg-proof { grid-template-columns: minmax(0, 1fr); }
+  .dlg-line { gap: 7px; }
+  .dlg-line-body { padding: 8px 10px; min-width: 0; overflow-wrap: break-word; }
+  .dlg-line .ear-play { min-width: 40px; padding: 4px 8px; font-size: .78rem; }
+  .dlg-phrases li { gap: 8px; }
+  .dlg-phrases li > div { min-width: 0; overflow-wrap: break-word; }
   .dlg-check .lp-btn, .ear-after .lp-btn { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {

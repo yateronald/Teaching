@@ -237,10 +237,17 @@
 @media (max-width: 600px) {
   /* On a phone the pinned bar keeps only the player row: voices and speed stay in the card above. */
   .rxl-player-card.is-pinned .rxl-player-tools { display: none; }
+  .rxl-player { gap: 8px; padding: 8px 10px; }
+  .rxl-player .rx-pl-play { width: 40px; height: 40px; font-size: 17px; flex-shrink: 0; }
+  .rxl-player .rx-pl-seek { gap: 6px; min-width: 0; }
+  .rxl-player .rx-pl-seek input[type='range'] { min-width: 36px; }
+  .rxl-player .rx-pl-time { min-width: 28px; font-size: 11px; }
+  .rxl-back5 { min-height: 32px; padding: 0 8px; gap: 3px; font-size: .74rem; }
   .rxl-header-illustrated { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .rxl-header-cover { aspect-ratio: 2.7 / 1; max-height: 145px; }
   .rxl-quiz > .lp-btn { width: 100%; }
   .rxl-question-heading > .rxl-clip { margin-bottom: 2px; }
+  .rxl-notes textarea { font-size: 16px; }
 }
 
 /* Advanced documents (C1, C2): note-taking, the plan of the argument, expressions to keep. */

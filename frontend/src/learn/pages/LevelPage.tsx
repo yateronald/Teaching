@@ -330,7 +330,12 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
                   className={mode === 'browse' ? 'is-on' : ''}
                   onClick={() => setMode('browse')}
                 >
-                  <AppstoreOutlined /> {lc.tabBrowse(level)} ({stats.total})
+                  <AppstoreOutlined />
+                  <span>
+                    <span className="lv-tab-full">{lc.tabBrowse(level)}</span>
+                    <span className="lv-tab-short">{fr ? 'Ressources' : 'Resources'}</span>
+                  </span>
+                  <span className="lv-tab-cnt">{stats.total}</span>
                 </button>
               </div>
 

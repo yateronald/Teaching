@@ -42,6 +42,8 @@
 
 @media (max-width: 640px) {
   .lx-player.is-placement .lx-pfoot-key { display: none; }
+  .lx-player.is-placement .lx-ptop-meta { flex-wrap: wrap; gap: 3px 8px; }
   .pt-ladder { gap: 4px; }
+  .pt-card .lx-q-fr.is-gap { padding: 12px 14px; }
   .pt-hint { font-size: 12.5px; }
 }

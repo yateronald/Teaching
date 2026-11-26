@@ -252,9 +252,6 @@ export function StudyRoadmap({
           )}
         </header>
 
-        {/* Premium advantages banner (only when Premium mode is active for visitors/free accounts) */}
-        <PremiumInfoWidget lang={lang} variant="banner" />
-
         {/* Numbered Mixed-Skill Module Stepper (Modules 1 → N) */}
         <ol className="sp-modules">
           {evaluated.modules.map(({ mod, steps, doneInMod, startedInMod, isComplete }, mIdx) => {
@@ -382,13 +379,18 @@ export function StudyRoadmap({
             );
           })}
         </ol>
+
+        {/* Premium advantages banner (placed after modules so Module 1 starts immediately below the header) */}
+        <PremiumInfoWidget lang={lang} variant="banner" />
       </div>
 
       {/* ── Right Companion Column: Step 3 Checkpoint, Next Level & Quick Practice ── */}
       <aside className="sp-side">
         {/* Step 3: Level Checkpoint */}
         <section className="sp-side-card is-checkpoint">
-          <img className="sp-side-photo" src={imageUrl('placement', 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
+          <div className="sp-side-media">
+            <img className="sp-side-photo" src={imageUrl('placement', 640)} alt="" decoding="async" width="640" height="360" />
+          </div>
           <p className="sp-side-eyebrow"><ThunderboltOutlined aria-hidden /> {c.checkpointEyebrow}</p>
           <h3>{c.checkpointTitle(plan.level)}</h3>
           <p>{c.checkpointDesc}</p>
@@ -442,7 +444,7 @@ export function StudyRoadmap({
         {/* 3-Minute Daily Game Boost */}
         <section className={`sp-side-card is-game${dailyGameLocked ? ' ax-locked-card' : ''}`}>
           <div className="sp-side-media">
-            <img className="sp-side-photo" src={imageUrl('games-hero', 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
+            <img className="sp-side-photo" src={imageUrl('games-hero', 640)} alt="" decoding="async" width="640" height="360" />
             {dailyGameLocked && (
               <span className={`sp-step-lock-badge${dailyGameTier === 'premium' ? ' is-premium' : ''}`} aria-hidden>
                 {dailyGameTier === 'premium' ? <CrownFilled /> : <LockOutlined />}
@@ -455,7 +457,7 @@ export function StudyRoadmap({
           {dailyGameLocked ? (
             <button
               type="button"
-              className="lp-btn lp-btn-ghost lp-btn-sm sp-side-btn"
+              className={`lp-btn ${dailyGameTier === 'premium' ? 'lp-btn-primary' : 'lp-btn-ghost'} lp-btn-sm sp-side-btn`}
               onClick={() => openPremiumModal({
                 title: plan.dailyGame.title,
                 subtitle: plan.dailyGame.subtitle,
@@ -465,7 +467,13 @@ export function StudyRoadmap({
                 to: plan.dailyGame.to,
               })}
             >
-              <LockActionPill lang={lang} tier={dailyGameTier} compact />
+              {dailyGameTier === 'premium' ? <CrownFilled style={{ color: '#f6d586' }} aria-hidden /> : <LockOutlined aria-hidden />}
+              <span>
+                {dailyGameTier === 'premium'
+                  ? (lang === 'fr' ? 'Débloquer avec Premium' : 'Unlock with Premium')
+                  : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account to play')}
+              </span>
+              <ArrowRightOutlined aria-hidden />
             </button>
           ) : (
             <Link to={plan.dailyGame.to} className="lx-link sp-side-sublink">

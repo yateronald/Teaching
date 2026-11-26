@@ -457,9 +457,18 @@
   .rx-pl-nav button, .rx-pl-speed button { width: 30px; height: 30px; font-size: 14px; }
   .rx-pl-voices button { padding: 0 8px; }
   .rx-pl-voices .rx-label { display: none; }
-  .rx-pl-speed > span { min-width: 46px; font-size: 12px; }
+  .rx-pl-speed > span { min-width: 40px; font-size: 12px; }
   .rx-pl-speed > span .anticon { display: none; }
+  .rx-mail div { min-width: 0; }
+  .rx-mail dd { min-width: 0; overflow-wrap: anywhere; }
   .rx-result { flex-direction: column; align-items: flex-start; }
+}
+@media (max-width: 420px) {
+  .rx-player { gap: 4px 5px; }
+  .rx-pl-play { width: 40px; height: 40px; font-size: 17px; }
+  .rx-pl-nav button, .rx-pl-speed button { width: 28px; height: 28px; font-size: 13px; }
+  .rx-pl-voices button { padding: 0 7px; font-size: 12px; }
+  .rx-pl-speed > span { min-width: 34px; font-size: 11.5px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -585,12 +594,48 @@
 .px-start-card h2 { margin-top: 6px; font-size: clamp(20px, 2.2vw, 25px); letter-spacing: -0.025em; }
 .px-start-card p:not(.rxl-sec-k) { margin: 8px 0 18px !important; color: var(--muted); font-size: 14.5px; line-height: 1.55; max-width: 520px; }
 
+/* Crisp readable step numerals on How Practice Works cards */
+.rx-how li::after { color: rgba(24, 57, 97, 0.14); }
+.rx-tabs ul::-webkit-scrollbar { display: none; }
+
 @media (max-width: 1040px) {
   .px-picks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .px-flagships.is-three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 920px) {
   .px-hero-grid, .px-flagships, .px-flagships.is-three, .px-roadmap-list, .px-start { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .rx-hero-bar { gap: 8px; margin-bottom: 12px; }
+  .rx-tabs { width: 100%; }
+  .rx-tabs ul {
+    width: 100%;
+    margin-bottom: 0;
+    padding: 4px 16px 4px 4px;
+    -webkit-overflow-scrolling: touch;
+    -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 90%, transparent 100%);
+    mask-image: linear-gradient(90deg, #000 0%, #000 90%, transparent 100%);
+  }
+  .rx-tabs a, .rx-tabs .is-soon { height: 32px; padding: 0 9px; font-size: 12.5px; gap: 5px; }
+  .px-hero-copy h1 { font-size: clamp(25px, 7.2vw, 33px); line-height: 1.09; }
+  .px-hero-ctas { flex-direction: column; align-items: stretch; gap: 9px; margin-top: 16px; }
+  .px-hero-ctas .lp-btn { width: 100%; justify-content: center; height: 46px; }
+  .px-hero-card { padding: 16px 15px 13px; border-radius: 18px; }
+  .px-flagship-foot .lp-btn { width: 100%; justify-content: center; }
+  .px-picks-head { gap: 12px; }
+  .px-picks-head .rxl-level-pills {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    width: 100%;
+    gap: 6px;
+  }
+  .px-picks-head .rxl-level-pills button {
+    justify-content: center;
+    padding: 0;
+    height: 36px;
+  }
+  .px-pick-sample { padding: 5px 10px; font-size: 14px; border-radius: 8px; }
+  .px-start-card .lp-btn { width: 100%; justify-content: center; }
 }
 @media (max-width: 560px) {
   .px-picks { grid-template-columns: minmax(0, 1fr); }

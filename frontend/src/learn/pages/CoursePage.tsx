@@ -247,7 +247,11 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
         <div className="lp-wrap cp-hero-grid">
           <div className="cp-hero-copy">
             <Crumbs lang={lang} items={[[ui.learnHome, hubPath(lang)], [tx(cat.name, lang), categoryPath(cat, lang)], [title]]} />
-            <p className="cp-provider"><span className="crs-logo" aria-hidden>LF</span>Learn French with Natives<span aria-hidden>·</span><Link to={categoryPath(cat, lang)}>{tx(cat.name, lang)}</Link></p>
+            <p className="cp-provider">
+              <span className="cp-provider-brand"><span className="crs-logo" aria-hidden>LF</span>Learn French with Natives</span>
+              <span className="cp-provider-dot" aria-hidden>·</span>
+              <Link to={categoryPath(cat, lang)} className="cp-provider-cat">{tx(cat.name, lang)}</Link>
+            </p>
             <h1 id="lx-course-title">{title}</h1>
             <p className="cp-sub">{tx(course.subtitle, lang)}</p>
             <p className="cp-teacher">

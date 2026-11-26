@@ -684,30 +684,64 @@
   .ah-mypath-actions { width: 100%; }
   .ah-mypath-actions .lp-btn { flex: 1 1 100%; justify-content: center; }
 }
+@media (max-width: 640px) {
+  .ah-hero { padding: 18px 0 16px; }
+  .ah-hero-grid { gap: 22px; }
+  .ah-eyebrow { margin-bottom: 12px; font-size: 12px; padding: 4px 12px 4px 6px; }
+  .ah-hero h1 { font-size: clamp(27px, 7.6vw, 35px); line-height: 1.09; }
+  .ah-lead { margin-top: 12px; font-size: 14.5px; line-height: 1.5; }
+  .ah-search-wrap { margin-top: 16px; }
+  /* Single-line swipeable topic strip on mobile keeps CTAs & hero stage punchy above the fold */
+  .ah-topics {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    margin: 13px -18px 0;
+    padding: 2px 18px 4px;
+    gap: 7px;
+  }
+  .ah-topics::-webkit-scrollbar { display: none; }
+  .ah-topics a { flex-shrink: 0; height: 32px; padding: 0 11px; font-size: 12.5px; }
+  .ah-hero-ctas { margin-top: 16px; gap: 10px; }
+  .ah-pill-btn { height: 46px; font-size: 14.5px; }
+  .ah-sec { padding: 38px 0; }
+  .ah-hero + .ah-sec, .ah-continue + .ah-sec { padding-top: 34px; }
+  .ah-head { margin-bottom: 22px; text-align: left; }
+  .ah-head h2 { font-size: clamp(24px, 6.5vw, 30px); }
+  .ah-head > p:last-child:not(.lp-eyebrow) { margin-inline: 0; font-size: 14.5px; }
+  .ah-subhead { margin: 32px 0 14px; }
+  .ah-levels-card { margin-top: 20px; padding: 18px 16px; border-radius: 18px; }
+  .ah-levels-head h3 { font-size: 19px; }
+  .ah-test-link { width: 100%; justify-content: center; }
+  .ah-lv-dot { width: 50px; height: 50px; font-size: 16px; margin-bottom: 6px; }
+  .ah-levels-foot .lp-btn { width: 100%; justify-content: center; }
+}
 @media (max-width: 560px) {
   .ah-studios { grid-template-columns: minmax(0, 1fr); }
   .ah-paths { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 84%; gap: 14px; margin: 0 -18px; padding: 4px 18px 12px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-inline: 18px; scrollbar-width: none; }
   .ah-paths::-webkit-scrollbar { display: none; }
   .ah-paths > .rv { scroll-snap-align: start; }
   .ah-grid { grid-template-columns: minmax(0, 1fr); }
-  .ah-lvcards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ah-lvcards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .ah-lvcard { padding: 14px 13px; border-radius: 14px; }
+  .ah-lvcard-big { font-size: 28px; }
   .ah-search { height: 50px; padding: 0 5px 0 14px; gap: 8px; }
   .ah-search-input { font-size: 16px; }
   .ah-search-btn { height: 38px; padding: 0 14px; font-size: 13px; }
   .ah-search-panel { max-height: min(460px, 62dvh); border-radius: 16px; }
-  .ah-topics { gap: 7px; }
-  .ah-topics a { height: 32px; padding: 0 11px; font-size: 12.5px; }
   .ah-hero-ctas .lp-btn { flex: 1 1 100%; justify-content: center; }
+  .ah-photo-arch { border-radius: 18px; border-width: 3px; }
   .ah-pills { gap: 8px; }
   .ah-pill { padding: 8px 10px 8px 8px; gap: 8px; border-radius: 13px; }
   .ah-pill-ico { width: 30px; height: 30px; }
   .ah-pill-copy strong { font-size: 12px; white-space: normal; }
   .ah-pill-copy small { font-size: 10.5px; white-space: normal; }
   .ah-pill-wave { display: none; }
-  .ah-stats { border-radius: 16px; }
-  .ah-stats li { padding: 15px 14px; gap: 10px; }
+  .ah-stats { margin-top: 22px; border-radius: 16px; }
+  .ah-stats li { padding: 14px 13px; gap: 10px; }
   .ah-stat-ico { width: 28px; height: 28px; }
-  .ah-stat-ico svg { width: 25px; height: 25px; }
+  .ah-stat-ico svg { width: 24px; height: 24px; }
   .ah-stat-copy b { font-size: 19px; }
   .ah-stat-copy > span { font-size: 11.5px; }
 }

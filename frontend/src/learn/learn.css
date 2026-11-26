@@ -1710,40 +1710,87 @@ a.lx-pmenu-item:hover { background: var(--paper); border-color: var(--line); }
 .lx-option kbd { width: 25px; height: 25px; font-size: 12px; }
 
 /* ── Fill, Dictation, Conjugate, Order, Match, Categorize ── */
+.lx-option > span,
+.lx-feedback > div,
+.lx-doc-row > span:first-child { min-width: 0; overflow-wrap: break-word; }
+
 .lx-fill-text {
   padding: clamp(12px, 1.8dvh, 18px) 18px;
   font-size: clamp(16.5px, min(1.8vw, 2.5dvh), 21px);
   line-height: 1.85;
+  overflow-wrap: break-word;
 }
-.lx-chip { height: clamp(36px, 4.8dvh, 42px); padding: 0 14px; font-size: var(--p-opt); }
+.lx-blank { max-width: 100%; box-sizing: border-box; }
+.lx-blank-chip { max-width: 100%; white-space: normal; overflow-wrap: break-word; }
+.lx-chip {
+  max-width: 100%;
+  height: auto;
+  min-height: clamp(36px, 4.8dvh, 42px);
+  padding: 6px 14px;
+  font-size: var(--p-opt);
+  line-height: 1.3;
+  white-space: normal;
+  text-align: left;
+}
 .lx-accents { margin-top: 10px; gap: 5px; }
 .lx-accents button { width: clamp(32px, 4.3dvh, 36px); height: clamp(32px, 4.3dvh, 36px); font-size: 15px; }
 
+.lx-conj-card header { flex-wrap: wrap; gap: 4px 12px; }
 .lx-conj-card ol {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px 18px;
 }
-.lx-conj-card input { height: clamp(38px, 5dvh, 44px); font-size: 16px; }
+.lx-conj-card li {
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  min-width: 0;
+}
+.lx-conj-card input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  height: clamp(38px, 5dvh, 44px);
+  font-size: 16px;
+}
 
 .lx-order-line { min-height: clamp(72px, 11dvh, 96px); padding: 10px 4px; }
 .lx-order-bank { margin-top: clamp(12px, 2dvh, 20px); }
-.lx-word, .lx-word-ghost { height: clamp(38px, 5dvh, 44px); line-height: clamp(38px, 5dvh, 44px); padding: 0 14px; font-size: var(--p-opt); }
+.lx-word-slot { max-width: 100%; }
+.lx-word, .lx-word-ghost {
+  max-width: 100%;
+  height: clamp(38px, 5dvh, 44px);
+  line-height: clamp(38px, 5dvh, 44px);
+  padding: 0 14px;
+  font-size: var(--p-opt);
+}
 
-.lx-match-cols > div { gap: clamp(6px, 1dvh, 9px); }
-.lx-tile { min-height: clamp(42px, 5.5dvh, 50px); padding: 8px 14px; font-size: var(--p-opt); }
+.lx-match-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.lx-match-cols > div { gap: clamp(6px, 1dvh, 9px); min-width: 0; }
+.lx-tile {
+  width: 100%;
+  min-width: 0;
+  min-height: clamp(42px, 5.5dvh, 50px);
+  padding: 8px 14px;
+  font-size: var(--p-opt);
+  overflow-wrap: break-word;
+}
 
 .lx-cat-pool { min-height: 44px; margin-bottom: 12px; }
-.lx-bucket { min-height: clamp(105px, 16dvh, 135px); padding: 10px; }
+.lx-cat-buckets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.lx-cat-buckets.is-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.lx-bucket { min-width: 0; min-height: clamp(105px, 16dvh, 135px); padding: 10px; }
 
 /* ── Speak, Dialogue, Flashcards, Hotspot, Write ── */
 .lx-speak-card { padding: clamp(12px, 1.8dvh, 18px) 18px; }
+.lx-speak-target { min-width: 0; overflow-wrap: break-word; }
 .lx-speak-target p { font-size: clamp(18px, min(2.2vw, 2.8dvh), 24px); }
 .lx-speak-mic { margin-top: clamp(14px, 2.2dvh, 22px); }
 .lx-mic-big { width: clamp(68px, 9.5dvh, 84px); height: clamp(68px, 9.5dvh, 84px); font-size: clamp(28px, 4dvh, 34px); }
 
 .lx-dlg-head { margin-bottom: 10px; }
 .lx-dlg-head h2 { font-size: var(--p-h2); }
+.lx-dlg-tools { flex-wrap: wrap; }
 .lx-chat {
   min-height: 180px;
   max-height: clamp(240px, 52dvh, 420px);
@@ -1751,12 +1798,14 @@ a.lx-pmenu-item:hover { background: var(--paper); border-color: var(--line); }
   padding: 14px;
   gap: 9px;
 }
-.lx-bubble { padding: 8px 12px 9px; }
-.lx-bubble button { font-size: var(--p-opt); }
-.lx-reply { min-height: 42px; padding: 8px 14px; font-size: var(--p-opt); }
+.lx-bubble { min-width: 0; padding: 8px 12px 9px; overflow-wrap: break-word; }
+.lx-bubble button { font-size: var(--p-opt); overflow-wrap: break-word; }
+.lx-reply { min-height: 42px; padding: 8px 14px; font-size: var(--p-opt); overflow-wrap: break-word; }
 
 .lx-deck { height: clamp(190px, 34dvh, 240px); margin: 4px 0 14px; }
 .lx-card3d, .lx-deck-under { height: clamp(175px, 31dvh, 220px); }
+.lx-card-face { overflow-y: auto; overflow-wrap: break-word; }
+.lx-cards-actions { flex-wrap: wrap; }
 
 .lx-hot-frame img { max-height: clamp(220px, 52dvh, 420px); width: 100%; object-fit: cover; }
 
@@ -1782,26 +1831,206 @@ a.lx-pmenu-item:hover { background: var(--paper); border-color: var(--line); }
   .lx-examples ol.is-two-col {
     grid-template-columns: 1fr;
   }
+  .lx-conj-card ol {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
 }
 @media (max-width: 640px) {
-  .lx-ptop { gap: 9px; }
-  .lx-ptop-title { max-width: 140px; font-size: 12px; }
-  .lx-xp { padding: 0 9px; height: 34px; font-size: 13px; }
-  .lx-xp small, .lx-pfoot-key, .lx-pfoot-meta { display: none; }
-  .lx-stage-card { padding: 18px 16px; border-radius: 18px; }
-  .lx-ex-card { grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; }
-  .lx-ex-num { display: none; }
-  .lx-conj-card ol {
-    grid-template-columns: 1fr;
+  /* Clean 2-row studio header on mobile: controls on row 1, full-width title + progress bar on row 2 */
+  .lx-ptop {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px 10px;
+    padding: 8px 12px 10px;
   }
+  .lx-ptop > .lx-icon-btn {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .lx-ptop-end {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    gap: 6px;
+  }
+  .lx-ptop:has(.lx-ptop-end) .lx-ptop-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    gap: 4px;
+  }
+  .lx-icon-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    font-size: 14px;
+  }
+  .lx-tr-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: auto;
+    padding-inline: 9px;
+  }
+  .lx-ptop-title {
+    max-width: none;
+    font-size: 13px;
+  }
+  .lx-ptop-count {
+    padding: 2px 7px;
+    font-size: 11px;
+  }
+  .lx-pbar { height: 7px; }
+  .lx-xp { padding: 0 9px; height: 34px; font-size: 13px; }
+  .lx-combo { height: 34px; padding: 0 8px; font-size: 12.5px; }
+  .lx-xp small, .lx-pfoot-key, .lx-pfoot-meta { display: none; }
+
+  /* Stage canvas & card spacing */
+  .lx-pstage { padding: 10px 10px 24px; }
+  .lx-stage-card { padding: 16px 14px 18px; border-radius: 16px; }
+  .lx-stage-flag { left: 14px; }
+  .lx-prompt { font-size: 19px; line-height: 1.24; margin-bottom: 12px !important; }
+
+  /* Concept & MCQ */
+  .lx-concept-callout { padding: 14px 14px 14px 18px; }
+  .lx-cb-chip { max-width: 100%; white-space: normal; }
+  .lx-examples { padding: 12px; border-radius: 14px; }
+  .lx-ex-card { grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; padding: 10px 11px; }
+  .lx-ex-num { display: none; }
+  .lx-ex-fr { overflow-wrap: break-word; }
+  .lx-option { padding: 10px 12px; gap: 10px; }
+  .lx-q-fr.is-gap { padding: 12px; font-size: 16.5px; }
+  .lx-doc-row { gap: 10px; }
+
+  /* Fill & Dictation */
+  .lx-fill-text { padding: 14px; font-size: 17px; line-height: 1.9; }
+  .lx-blank { padding: 2px 6px; font-size: max(16px, 1em); }
+  .lx-textarea { padding: 12px 14px; font-size: 16px; }
+  .lx-diff { padding: 14px; font-size: 17px; }
+  .lx-listen { gap: 6px 12px; padding: 12px; }
+  .lx-listen-side { flex-wrap: wrap; gap: 8px; }
+
+  /* Conjugation card: zero input clipping, pixel-aligned mobile inputs */
+  .lx-conj-card { border-radius: 14px; }
+  .lx-conj-card header { padding: 11px 14px; gap: 4px 10px; }
+  .lx-conj-card header strong { font-size: 18px; }
+  .lx-conj-card header span { font-size: 11.5px; }
+  .lx-conj-card ol { grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 8px 0; }
+  .lx-conj-card li { grid-template-columns: 74px minmax(0, 1fr); gap: 6px 10px; padding: 5px 12px; }
+  .lx-conj-pron { font-size: 14.5px; line-height: 1.2; }
+  .lx-conj-card input { width: 100%; min-width: 0; height: 42px; padding: 0 11px; border-radius: 10px; font-size: 16px; }
+  .lx-conj-fix { grid-column: 2; font-size: 13.5px; }
+
+  /* Accent bar: balanced 7-column touch grid */
+  .lx-accents {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .lx-accents button {
+    width: 100%;
+    height: 38px;
+    border-radius: 9px;
+    font-size: 16px;
+  }
+
+  /* Order, Match, Categorize */
+  .lx-order-line { min-height: 76px; padding: 10px 4px; gap: 6px; }
+  .lx-order-bank { gap: 6px; }
+  .lx-word, .lx-word-ghost {
+    height: auto;
+    min-height: 38px;
+    line-height: 1.3;
+    padding: 7px 12px;
+    white-space: normal;
+    text-align: center;
+    overflow-wrap: break-word;
+    font-size: 15px;
+  }
+  .lx-match-cols { gap: 8px; }
+  .lx-tile { min-height: 46px; padding: 8px 10px; gap: 6px; font-size: 14px; border-radius: 12px; }
+  .lx-cat-pool { gap: 6px; }
+  .lx-cat-buckets { gap: 8px; }
+  .lx-bucket { min-height: 100px; padding: 10px 8px; border-radius: 14px; }
+  .lx-bucket > p { font-size: 13.5px; margin-bottom: 8px !important; overflow-wrap: break-word; }
+  .lx-bucket-items .lx-word { height: auto; min-height: 34px; padding: 5px 10px; font-size: 14px; }
+
+  /* Hotspot */
+  .lx-hot-task { padding: 10px 12px; font-size: 14.5px; }
+  .lx-hot-task.is-find { font-size: 16px; }
+  .lx-spot { width: 30px; height: 30px; margin: -15px 0 0 -15px; font-size: 13px; }
+  .lx-spot-label { max-width: min(190px, 62vw); white-space: normal; padding: 6px 9px; }
+  .lx-spot-label strong { font-size: 14px; line-height: 1.25; }
+  .lx-spot-label span { font-size: 12px; }
+
+  /* Speak, Dialogue, Flashcards, Write */
+  .lx-speak-card { padding: 14px; gap: 12px; }
+  .lx-speak-target p { font-size: 19px; }
+  .lx-speak-result { padding: 12px 14px; }
+  .lx-chat { padding: 10px; gap: 8px; border-radius: 15px; }
+  .lx-bubble-row { max-width: 94%; gap: 7px; }
+  .lx-avatar { width: 28px; height: 28px; font-size: 12px; }
+  .lx-toggle { height: 32px; padding: 0 10px; font-size: 12.5px; }
+  .lx-dlg-choose { padding: 11px; }
+  .lx-reply { padding: 9px 12px; font-size: 14.5px; }
+  .lx-deck { height: clamp(210px, 36dvh, 250px); }
+  .lx-card3d, .lx-deck-under { height: clamp(195px, 33dvh, 235px); }
+  .lx-card-face { padding: 28px 16px 18px; gap: 10px; border-radius: 18px; }
+  .lx-card-face strong { font-size: clamp(20px, 5.5vw, 26px); }
+  .lx-cards-actions { gap: 8px; }
+  .lx-cards-actions .lx-btn-soft { flex: 1 1 130px; justify-content: center; padding: 0 12px; font-size: 14px; }
+  .lx-editor textarea { padding: 12px 14px; font-size: 16px; }
+  .lx-wordbar { flex-wrap: wrap; gap: 6px 10px; padding: 9px 12px; }
+  .lx-phrases .lx-chip { height: auto; min-height: 34px; padding: 5px 11px; font-size: 13.5px; }
+  .lx-model { padding: 14px; }
+
+  /* Footer & feedback: full-width button normally, cleanly stacked when feedback shows */
   .lx-pfoot-in {
     flex-direction: row;
     align-items: center;
+    gap: 10px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   }
   .lx-pbtn {
     width: auto;
+    min-width: 0;
     flex: 1;
+    height: 46px;
+    padding: 0 20px;
   }
+  .lx-pfoot.is-right .lx-pfoot-in,
+  .lx-pfoot.is-wrong .lx-pfoot-in {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .lx-pfoot.is-right .lx-pbtn,
+  .lx-pfoot.is-wrong .lx-pbtn {
+    width: 100%;
+    flex: none;
+  }
+  .lx-feedback {
+    gap: 10px;
+    max-height: 28dvh;
+    overflow-y: auto;
+  }
+
+  /* End screen, Certificate, Vocab, Heatmap */
+  .lx-end-card { padding: 24px 18px; border-radius: 18px; }
+  .lx-end-stats { flex-wrap: wrap; justify-content: center; gap: 14px 24px; }
+  .lx-final-result { flex-direction: column; text-align: center; padding: 16px; }
+  .lx-cert-border { padding: 20px 14px 16px; }
+  .lx-cert-name { font-size: 23px; }
+  .lx-cert-foot { flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .lx-heat { gap: 4px; }
+  .lx-vocab td { padding: 9px 11px; font-size: 14px; }
+}
+@media (max-width: 440px) {
+  .lx-cat-buckets { grid-template-columns: minmax(0, 1fr); }
+  .lx-course-card dl { grid-template-columns: 1fr; padding: 16px; }
 }
 
 /* ── Motion: content that fades up as it scrolls in (components/Reveal.tsx) ── */
@@ -1843,4 +2072,172 @@ a.lx-pmenu-item:hover { background: var(--paper); border-color: var(--line); }
   .lx-cat-banner-main .lx-tcta { background: linear-gradient(180deg, rgba(14, 31, 77, 0.75), var(--navy) 55%), var(--tcta-img, none) center top / 100% auto no-repeat, var(--navy); padding-top: 120px; }
   .lx-cat-banner-topic { flex-wrap: wrap; }
   .lx-cat-topic-go { width: 100%; justify-content: center; }
+}
+
+/* ── Studio Mobile Polish: Crumbs, Category, Lesson Pre-Start & Interactive Player ── */
+.lx-concept-body strong {
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+.lx-cat-journey ol {
+  scrollbar-width: none;
+}
+.lx-cat-journey ol::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 960px) {
+  .lx-cat-hero-grid, .lx-place-grid, .lx-try, .lx-teacher-grid, .lx-lesson-grid, .lx-final-grid, .lx-end {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lx-cat-hero-grid > *, .lx-place-grid > *, .lx-lesson-grid > *, .lx-crumbs {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Single-line scrollable breadcrumbs across learn pages */
+  .lx-crumbs ol {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    gap: 5px;
+    margin-bottom: 12px;
+    padding-right: 16px;
+    font-size: 12.5px;
+    -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 90%, transparent 100%);
+    mask-image: linear-gradient(90deg, #000 0%, #000 90%, transparent 100%);
+  }
+  .lx-crumbs ol::-webkit-scrollbar { display: none; }
+  .lx-crumbs li { flex-shrink: 0; }
+
+  /* Category, Level & Lesson Hero pacing */
+  .lx-cat-hero, .lx-lesson-hero, .lx-place-hero { padding: 18px 0 26px; }
+  .lx-cat-hero h1, .lx-lesson-hero h1, .lx-place-hero h1 {
+    margin-top: 10px;
+    font-size: clamp(26px, 7.2vw, 35px);
+    line-height: 1.09;
+  }
+  .lx-hero-sub { margin-top: 10px !important; font-size: 15px; line-height: 1.55; }
+  .lx-cat-facts { gap: 8px 16px; margin-top: 14px !important; font-size: 13px; }
+  .lx-cat-hero .lp-hero-ctas { margin-top: 18px; gap: 10px; }
+  .lx-cat-hero .lp-hero-ctas .lp-btn { width: 100%; justify-content: center; }
+
+  /* 6-column balanced CEFR level pills (no C2 orphan) */
+  .lx-hero-levels { gap: 6px; margin-top: 16px; }
+  .lx-hero-levels span {
+    flex: 1 0 100%;
+    margin: 0 0 2px;
+    font-size: 11.5px;
+    font-weight: 750;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .lx-hero-levels a {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 36px;
+    padding: 0 4px;
+    font-size: 13.5px;
+  }
+  .lx-level-nav {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 14px;
+  }
+  .lx-level-nav a {
+    min-width: 0;
+    padding: 8px 4px;
+    font-size: 13.5px;
+  }
+
+  /* Category spotlight & compact list cards */
+  .lx-cat-spotlight-sec { margin-top: -14px; }
+  .lx-cat-spotlight { padding: 14px; border-radius: 18px; gap: 16px; }
+  .lx-cat-spot-foot { gap: 10px 14px; margin-top: 14px; }
+  .lx-cat-spot-foot .lp-btn { width: 100%; justify-content: center; }
+  .lx-cat-search input { font-size: 16px; }
+  .lx-cat-compact-card {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 8px 10px;
+    padding: 12px;
+  }
+  .lx-cat-compact-card > .lx-cc-start,
+  .lx-cat-compact-card > button {
+    grid-column: 2;
+    justify-self: start;
+    margin-left: 0;
+    margin-top: 2px;
+  }
+
+  /* Prevent LockActionPill clipping in 2-col mobile ladder/lesson rows */
+  .lx-lesson-row > .ax-lock-cta,
+  .lx-ladder-row > .ax-lock-cta {
+    grid-column: 2;
+    justify-self: start;
+    margin-top: 4px;
+  }
+
+  /* Lesson pre-start page: prominent full-width Start CTA & cohesive notes */
+  .lx-lesson-k { font-size: 12.5px; gap: 6px 8px; }
+  .lx-lesson-start {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    margin-top: 20px;
+  }
+  .lx-lesson-start .lx-start-btn {
+    width: 100%;
+    justify-content: center;
+    height: 50px;
+    border-radius: 14px;
+    font-size: 16px;
+    box-shadow: 0 12px 24px -12px rgba(24, 57, 97, 0.72);
+  }
+  .lx-lesson-start > span { justify-content: center; font-size: 13.5px; }
+  .lx-objectives { padding: 18px 16px; border-radius: 16px; }
+  .lx-objectives li { font-size: 14.5px; line-height: 1.48; }
+  .lx-kinds.is-lg { gap: 6px; margin-top: 14px; }
+  .lx-kinds.is-lg span { padding: 5px 10px; font-size: 12px; border-radius: 999px; }
+  .lx-notes-sec { padding-block: 28px 40px; }
+  .lx-notes-points li {
+    padding: 13px 14px;
+    gap: 11px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    border-radius: 13px;
+  }
+  .lx-vocab { border-radius: 13px; }
+  .lx-vocab tr:nth-child(even) { background: rgba(251, 249, 245, 0.75); }
+  .lx-vocab-fr { gap: 8px; }
+  .lx-lesson-nav { gap: 10px; margin-top: 24px; }
+  .lx-lesson-nav a { padding: 13px 14px; border-radius: 13px; box-shadow: var(--shadow-sm); }
+  .lx-side-img { aspect-ratio: 16 / 8; border-radius: 16px; }
+
+  /* Interactive exercise player: top-anchored mobile card & native touch-first MCQ */
+  .lx-step { margin: clamp(6px, 2dvh, 18px) 0 auto; }
+  .lx-stage-card { padding: 18px 15px 20px; border-radius: 18px; }
+  .lx-option {
+    min-height: 52px;
+    padding: 11px 13px;
+    border-radius: 13px;
+    font-size: 15.5px;
+    gap: 11px;
+    transition: transform 0.12s, border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  }
+  .lx-option:active:not(:disabled) { transform: scale(0.985); }
+  .lx-option kbd {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border-color: var(--blue-line);
+    background: var(--blue-soft);
+    color: var(--blue);
+    font-size: 12px;
+  }
+  .lx-pbtn { height: 48px; border-radius: 14px; font-size: 15.5px; }
 }

@@ -238,7 +238,7 @@
 .ax-gate-t { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 800; font-size: 16px; color: var(--ink); }
 .ax-gate.is-premium .ax-gate-t .anticon { color: #c49535; }
 .ax-gate-text { margin: 0; color: var(--text); line-height: 1.55; }
-.ax-gate .lp-hero-ctas { margin: 4px 0 0; }
+.ax-gate .lp-hero-ctas { margin: 4px 0 0; animation: none; }
 .ax-opening { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; color: var(--muted); font-weight: 600; }
 .ax-outline-note { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
 .ax-item-gate-grid {
@@ -1434,6 +1434,8 @@
 }
 
 @media (max-width: 600px) {
+  .ax-code { font-size: 20px !important; letter-spacing: 0.25em; }
+  .ax-plan-pillbar { flex-wrap: wrap; width: 100%; justify-content: space-between; }
   .ax-period-btn { padding: 0 12px; font-size: 12.5px; min-height: 36px; }
   .ax-cmp-table { min-width: 470px; }
   .ax-cmp-table th, .ax-cmp-table td { padding: 10px 10px; font-size: 12.5px; }

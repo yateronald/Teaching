@@ -211,7 +211,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
                   <dd>{lang === 'fr' ? 'tous les niveaux' : 'all CEFR levels'}</dd>
                 </div>
                 <div>
-                  <dt>100 %</dt>
+                  <dt>{lang === 'fr' ? '100 %' : '100%'}</dt>
                   <dd>{lang === 'fr' ? 'voix natives' : 'native audio'}</dd>
                 </div>
               </dl>
@@ -387,8 +387,6 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
             </div>
           </header>
 
-          <div className="lp-wrap"><PremiumInfoWidget lang={lang} variant="banner" /></div>
-
           <ul className="px-picks">
             {quickPicks.map(item => {
               const tier: Tier = itemTier(item.tierKey);
@@ -422,6 +420,8 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
               );
             })}
           </ul>
+
+          <PremiumInfoWidget lang={lang} variant="banner" />
         </div>
       </section>
 
