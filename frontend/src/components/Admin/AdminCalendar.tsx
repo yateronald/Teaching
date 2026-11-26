@@ -4,7 +4,7 @@ import {
   Button, ConfigProvider, DatePicker, Drawer, Form, Input, Modal, Radio, Segmented, Select, Spin, Tag, Tooltip, message,
 } from 'antd';
 import {
-  CalendarOutlined, ClockCircleOutlined, CopyOutlined, LeftOutlined, LinkOutlined, LockOutlined,
+  CalendarOutlined, ClearOutlined, ClockCircleOutlined, CopyOutlined, FilterOutlined, LeftOutlined, LinkOutlined, LockOutlined,
   MailOutlined, PlusOutlined, ReloadOutlined, RightOutlined, TeamOutlined, UserOutlined, VideoCameraOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -34,6 +34,7 @@ interface CalendarMeeting {
   teacher_first_name?: string;
   teacher_last_name?: string;
   teacher_email?: string;
+  teacher_role?: string;
   batch_name?: string | null;
   demo_request_id?: number | null;
   demo_full_name?: string | null;
@@ -44,9 +45,12 @@ interface CalendarMeeting {
   invitees?: Invitee[];
 }
 
-interface HostOption { id: number; first_name: string; last_name: string; email: string; role: string; }
+interface HostOption { id: number; first_name: string; last_name: string; email: string; role: string; is_active?: boolean; }
+type HostRoleScope = 'all' | 'teacher' | 'admin';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const hostFullName = (first?: string, last?: string, fallback = 'Host') =>
+  `${first || ''} ${last || ''}`.trim() || fallback;
 
 const AdminCalendar: React.FC = () => {
   const { apiCall, user } = useAuth();
@@ -59,9 +63,12 @@ const AdminCalendar: React.FC = () => {
   const [cursor, setCursor] = useState<Dayjs>(() => dayjs().startOf('month'));
   const [viewMode, setViewMode] = useState<'month' | 'agenda'>('month');
   const [kindFilter, setKindFilter] = useState<string>('all');
+  const [hostRoleFilter, setHostRoleFilter] = useState<HostRoleScope>('all');
+  const [hostIdFilter, setHostIdFilter] = useState<number | null>(null);
   const [events, setEvents] = useState<CalendarMeeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<CalendarMeeting | null>(null);
+  const [dayModal, setDayModal] = useState<{ label: string; items: CalendarMeeting[] } | null>(null);
   const [revealPass, setRevealPass] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -76,18 +83,26 @@ const AdminCalendar: React.FC = () => {
       const to = cursor.endOf('month').add(14, 'day').toISOString();
       const params = new URLSearchParams({ from, to });
       if (kindFilter !== 'all') params.set('kind', kindFilter);
+      if (hostIdFilter != null) {
+        params.set('host_id', String(hostIdFilter));
+      } else if (hostRoleFilter !== 'all') {
+        params.set('host_role', hostRoleFilter);
+      }
       const resp = await apiCall(`/meetings/admin-calendar?${params.toString()}`);
       const d = await resp.json().catch(() => ({}));
       if (resp.ok && Array.isArray(d.events)) {
         setEvents(d.events);
         setSelected(cur => (cur ? d.events.find((e: CalendarMeeting) => e.id === cur.id) || cur : cur));
       }
+      if (resp.ok && Array.isArray(d.hosts) && d.hosts.length > 0) {
+        setHosts(d.hosts);
+      }
     } catch {
       msg.error('Could not load admin calendar');
     } finally {
       setLoading(false);
     }
-  }, [apiCall, cursor, kindFilter, msg]);
+  }, [apiCall, cursor, kindFilter, hostIdFilter, hostRoleFilter, msg]);
 
   useEffect(() => { fetchCalendar(); }, [fetchCalendar]);
 
@@ -105,24 +120,54 @@ const AdminCalendar: React.FC = () => {
     };
   }, [fetchCalendar]);
 
-  useEffect(() => {
-    Promise.all([
-      apiCall('/users?limit=200').then(res => (res.ok ? res.json() : [])).catch(() => []),
-      apiCall('/users/role/teachers').then(res => (res.ok ? res.json() : [])).catch(() => []),
-    ]).then(([allUsers, teachers]) => {
-      const list = Array.isArray(allUsers) ? allUsers : (allUsers?.users || allUsers?.data || []);
-      const map = new Map<number, HostOption>();
-      for (const u of [...list, ...(Array.isArray(teachers) ? teachers : [])]) {
-        if (u && (u.role === 'admin' || u.role === 'teacher') && u.id) {
-          map.set(Number(u.id), u);
-        }
-      }
-      if (user?.id && !map.has(Number(user.id))) {
-        map.set(Number(user.id), { id: Number(user.id), first_name: user.first_name, last_name: user.last_name, email: user.email, role: 'admin' });
-      }
-      setHosts([...map.values()]);
+  const adminHosts = useMemo(() => hosts.filter(h => h.role === 'admin'), [hosts]);
+  const teacherHosts = useMemo(() => hosts.filter(h => h.role === 'teacher'), [hosts]);
+
+  const hostSelectOptions = useMemo(() => {
+    const fmt = (h: HostOption) => ({
+      value: h.id,
+      label: `${hostFullName(h.first_name, h.last_name, h.email)} (${h.role === 'admin' ? 'Admin' : 'Teacher'})`,
+      email: h.email,
+      role: h.role,
     });
-  }, [apiCall, user]);
+    if (hostRoleFilter === 'teacher') {
+      return teacherHosts.map(fmt);
+    }
+    if (hostRoleFilter === 'admin') {
+      return adminHosts.map(fmt);
+    }
+    const groups: { label: string; options: ReturnType<typeof fmt>[] }[] = [];
+    if (teacherHosts.length > 0) {
+      groups.push({ label: `Teachers (${teacherHosts.length})`, options: teacherHosts.map(fmt) });
+    }
+    if (adminHosts.length > 0) {
+      groups.push({ label: `Admins (${adminHosts.length})`, options: adminHosts.map(fmt) });
+    }
+    return groups;
+  }, [adminHosts, teacherHosts, hostRoleFilter]);
+
+  const activeHostObj = useMemo(
+    () => (hostIdFilter != null ? hosts.find(h => h.id === hostIdFilter) || null : null),
+    [hostIdFilter, hosts],
+  );
+
+  const hasActiveFilter = kindFilter !== 'all' || hostRoleFilter !== 'all' || hostIdFilter !== null;
+
+  const handleHostRoleChange = (nextRole: HostRoleScope) => {
+    setHostRoleFilter(nextRole);
+    if (hostIdFilter != null && nextRole !== 'all') {
+      const cur = hosts.find(h => h.id === hostIdFilter);
+      if (!cur || cur.role !== nextRole) {
+        setHostIdFilter(null);
+      }
+    }
+  };
+
+  const resetAllFilters = () => {
+    setKindFilter('all');
+    setHostRoleFilter('all');
+    setHostIdFilter(null);
+  };
 
   const monthDays = useMemo(() => {
     const startOfMonth = cursor.startOf('month');
@@ -154,7 +199,7 @@ const AdminCalendar: React.FC = () => {
     form.resetFields();
     form.setFieldsValue({
       require_approval: true,
-      host_id: user?.id,
+      host_id: hostIdFilter || user?.id,
       scheduled_time: [dayjs().add(1, 'hour').startOf('hour'), dayjs().add(2, 'hour').startOf('hour')],
     });
     setCreateOpen(true);
@@ -218,6 +263,12 @@ const AdminCalendar: React.FC = () => {
     return <Tag color="blue">Class</Tag>;
   };
 
+  const hostRoleTag = (role?: string) => {
+    if (role === 'admin') return <Tag color="geekblue">Admin</Tag>;
+    if (role === 'teacher') return <Tag color="cyan">Teacher</Tag>;
+    return null;
+  };
+
   const statusTag = (s: string) => {
     if (s === 'active') return <Tag color="green">Live</Tag>;
     if (s === 'waiting') return <Tag color="gold">Opening</Tag>;
@@ -226,6 +277,34 @@ const AdminCalendar: React.FC = () => {
   };
 
   const showAgenda = r.isMobile || viewMode === 'agenda';
+
+  const filterSubtitle = activeHostObj
+    ? `Showing ${activeHostObj.role === 'admin' ? 'admin' : 'teacher'} calendar for ${hostFullName(activeHostObj.first_name, activeHostObj.last_name, activeHostObj.email)} in ${tzLabel}.`
+    : hostRoleFilter === 'teacher'
+      ? `Showing all teachers' scheduled sessions in ${tzLabel}.`
+      : hostRoleFilter === 'admin'
+        ? `Showing all admins' scheduled sessions in ${tzLabel}.`
+        : `All demo meetings, external invitations, and scheduled live sessions in ${tzLabel}.`;
+
+  const scheduleHostOptions = useMemo(() => {
+    const activeOnly = hosts.filter(h => h.is_active !== false);
+    const admins = activeOnly.filter(h => h.role === 'admin');
+    const teachers = activeOnly.filter(h => h.role === 'teacher');
+    const groups: { label: string; options: { value: number; label: string }[] }[] = [];
+    if (admins.length > 0) {
+      groups.push({
+        label: 'Admins',
+        options: admins.map(h => ({ value: h.id, label: `${hostFullName(h.first_name, h.last_name, h.email)} (Admin) · ${h.email}` })),
+      });
+    }
+    if (teachers.length > 0) {
+      groups.push({
+        label: 'Teachers',
+        options: teachers.map(h => ({ value: h.id, label: `${hostFullName(h.first_name, h.last_name, h.email)} (Teacher) · ${h.email}` })),
+      });
+    }
+    return groups;
+  }, [hosts]);
 
   return (
     <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', borderRadius: 8, fontSize: 13 } }}>
@@ -236,7 +315,7 @@ const AdminCalendar: React.FC = () => {
           <div>
             <div className="ac-overline">Admin console · Scheduling</div>
             <h1 className="ac-title">Admin calendar</h1>
-            <p className="ac-subtitle">All demo meetings, external invitations, and scheduled live sessions in {tzLabel}.</p>
+            <p className="ac-subtitle">{filterSubtitle}</p>
           </div>
           <div className="ac-header-actions">
             <Button icon={<ReloadOutlined />} onClick={fetchCalendar} loading={loading}>Refresh</Button>
@@ -245,34 +324,81 @@ const AdminCalendar: React.FC = () => {
         </header>
 
         <section className="ac-toolbar">
-          <div className="ac-nav">
-            <Button icon={<LeftOutlined />} onClick={() => setCursor(c => c.subtract(1, 'month'))} aria-label="Previous month" />
-            <Button onClick={() => setCursor(dayjs().startOf('month'))}>Today</Button>
-            <span className="ac-month-label">{cursor.format('MMMM YYYY')}</span>
-            <Button icon={<RightOutlined />} onClick={() => setCursor(c => c.add(1, 'month'))} aria-label="Next month" />
-          </div>
+          <div className="ac-toolbar-row">
+            <div className="ac-nav">
+              <Button icon={<LeftOutlined />} onClick={() => setCursor(c => c.subtract(1, 'month'))} aria-label="Previous month" />
+              <Button onClick={() => setCursor(dayjs().startOf('month'))}>Today</Button>
+              <span className="ac-month-label">{cursor.format('MMMM YYYY')}</span>
+              <Button icon={<RightOutlined />} onClick={() => setCursor(c => c.add(1, 'month'))} aria-label="Next month" />
+            </div>
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <Segmented
-              value={kindFilter}
-              onChange={v => setKindFilter(String(v))}
-              options={[
-                { value: 'all', label: 'All' },
-                { value: 'demo', label: 'Demos' },
-                { value: 'admin', label: 'Public / External' },
-                { value: 'class', label: 'Classes' },
-              ]}
-            />
-            {!r.isMobile && (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <Segmented
-                value={viewMode}
-                onChange={v => setViewMode(v as 'month' | 'agenda')}
+                value={kindFilter}
+                onChange={v => setKindFilter(String(v))}
                 options={[
-                  { value: 'month', label: 'Month' },
-                  { value: 'agenda', label: 'Agenda' },
+                  { value: 'all', label: 'All' },
+                  { value: 'demo', label: 'Demos' },
+                  { value: 'admin', label: 'Public / External' },
+                  { value: 'class', label: 'Classes' },
                 ]}
               />
-            )}
+              {!r.isMobile && (
+                <Segmented
+                  value={viewMode}
+                  onChange={v => setViewMode(v as 'month' | 'agenda')}
+                  options={[
+                    { value: 'month', label: 'Month' },
+                    { value: 'agenda', label: 'Agenda' },
+                  ]}
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="ac-filter-row">
+            <div className="ac-host-controls">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: '#475569' }}>
+                <FilterOutlined />
+                Host
+              </span>
+              <Segmented
+                value={hostRoleFilter}
+                onChange={v => handleHostRoleChange(v as HostRoleScope)}
+                options={[
+                  { value: 'all', label: 'All hosts' },
+                  { value: 'teacher', label: `Teachers (${teacherHosts.length})` },
+                  { value: 'admin', label: `Admins (${adminHosts.length})` },
+                ]}
+              />
+              <Select<number>
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                value={hostIdFilter ?? undefined}
+                onChange={v => setHostIdFilter(v ?? null)}
+                options={hostSelectOptions}
+                placeholder={
+                  hostRoleFilter === 'teacher'
+                    ? 'All teachers · select a specific teacher'
+                    : hostRoleFilter === 'admin'
+                      ? 'All admins · select a specific admin'
+                      : 'Filter by specific teacher or admin...'
+                }
+                style={{ minWidth: r.isMobile ? '100%' : 260, maxWidth: 340, flex: '1 1 240px' }}
+              />
+            </div>
+
+            <div className="ac-filter-summary">
+              <span className="ac-count-pill">
+                {events.length} {events.length === 1 ? 'session' : 'sessions'}
+              </span>
+              {hasActiveFilter && (
+                <Button size="small" icon={<ClearOutlined />} onClick={resetAllFilters}>
+                  Reset filters
+                </Button>
+              )}
+            </div>
           </div>
         </section>
 
@@ -284,7 +410,14 @@ const AdminCalendar: React.FC = () => {
               {events.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 16px', color: '#64748b' }}>
                   <CalendarOutlined style={{ fontSize: 30, marginBottom: 8, display: 'block' }} />
-                  <strong>No meetings scheduled in this window</strong>
+                  <strong>
+                    {hasActiveFilter ? 'No meetings match the selected filters in this window' : 'No meetings scheduled in this window'}
+                  </strong>
+                  {hasActiveFilter && (
+                    <div style={{ marginTop: 10 }}>
+                      <Button size="small" onClick={resetAllFilters}>Show all hosts &amp; sessions</Button>
+                    </div>
+                  )}
                 </div>
               ) : events.map(ev => (
                 <div key={ev.id} className="ac-agenda-row" onClick={() => { setRevealPass(false); setSelected(ev); }}>
@@ -294,11 +427,15 @@ const AdminCalendar: React.FC = () => {
                       {kindTag(ev.meeting_kind)}
                       {statusTag(ev.status)}
                     </div>
-                    <div style={{ fontSize: 12.5, color: '#64748b', display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 12.5, color: '#64748b', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                       {ev.scheduled_start && (
                         <span><ClockCircleOutlined /> {formatPlain(ev.scheduled_start, tz, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
                       )}
-                      <span><UserOutlined /> {`${ev.teacher_first_name || ''} ${ev.teacher_last_name || ''}`.trim() || 'Host'}</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <UserOutlined />
+                        {hostFullName(ev.teacher_first_name, ev.teacher_last_name)}
+                        {hostRoleTag(ev.teacher_role)}
+                      </span>
                       {(ev.invitees?.length || 0) > 0 && <span><MailOutlined /> {ev.invitees!.length} invited</span>}
                     </div>
                   </div>
@@ -324,24 +461,28 @@ const AdminCalendar: React.FC = () => {
                   return (
                     <div key={key} className={`ac-cell${isOut ? ' is-out' : ''}${isToday ? ' is-today' : ''}`}>
                       <span className="ac-day-num">{day.date()}</span>
-                      {dayEvents.slice(0, 3).map(ev => (
-                        <button
-                          key={ev.id}
-                          type="button"
-                          className={`ac-event is-${ev.meeting_kind || 'class'}`}
-                          onClick={() => { setRevealPass(false); setSelected(ev); }}
-                        >
-                          <strong>{ev.title}</strong>
-                          <span>
-                            {ev.scheduled_start ? formatPlain(ev.scheduled_start, tz, { hour: 'numeric', minute: '2-digit', hour12: true }) : ''}
-                          </span>
-                        </button>
-                      ))}
+                      {dayEvents.slice(0, 3).map(ev => {
+                        const hostShort = ev.teacher_first_name || hostFullName(ev.teacher_first_name, ev.teacher_last_name, '');
+                        return (
+                          <button
+                            key={ev.id}
+                            type="button"
+                            className={`ac-event is-${ev.meeting_kind || 'class'}`}
+                            onClick={() => { setRevealPass(false); setSelected(ev); }}
+                          >
+                            <strong>{ev.title}</strong>
+                            <span className="ac-event-meta">
+                              <span>{ev.scheduled_start ? formatPlain(ev.scheduled_start, tz, { hour: 'numeric', minute: '2-digit', hour12: true }) : ''}</span>
+                              {hostShort && <span className="ac-event-host">{hostShort}</span>}
+                            </span>
+                          </button>
+                        );
+                      })}
                       {dayEvents.length > 3 && (
                         <button
                           type="button"
                           style={{ border: 'none', background: 'transparent', fontSize: 11, color: '#4f46e5', textAlign: 'left', cursor: 'pointer', fontWeight: 600 }}
-                          onClick={() => setViewMode('agenda')}
+                          onClick={() => setDayModal({ label: day.format('dddd, MMMM D, YYYY'), items: dayEvents })}
                         >
                           +{dayEvents.length - 3} more
                         </button>
@@ -353,6 +494,53 @@ const AdminCalendar: React.FC = () => {
             </>
           )}
         </section>
+
+        {/* Busy-day overflow modal */}
+        <Modal
+          open={!!dayModal}
+          onCancel={() => setDayModal(null)}
+          footer={null}
+          width={520}
+          centered
+          title={dayModal ? `${dayModal.label} (${dayModal.items.length} sessions)` : ''}
+        >
+          {dayModal && (
+            <div className="ac-day-modal-list">
+              {dayModal.items.map(ev => (
+                <div
+                  key={ev.id}
+                  className="ac-agenda-row"
+                  onClick={() => {
+                    setDayModal(null);
+                    setRevealPass(false);
+                    setSelected(ev);
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
+                      <strong>{ev.title}</strong>
+                      {kindTag(ev.meeting_kind)}
+                      {statusTag(ev.status)}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: '#64748b', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {ev.scheduled_start && (
+                        <span><ClockCircleOutlined /> {formatPlain(ev.scheduled_start, tz, { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                      )}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <UserOutlined />
+                        {hostFullName(ev.teacher_first_name, ev.teacher_last_name)}
+                        {hostRoleTag(ev.teacher_role)}
+                      </span>
+                    </div>
+                  </div>
+                  <Button size="small" type="primary" onClick={e => { e.stopPropagation(); navigate(`/app/meeting/${ev.code || ev.room_name}`); }}>
+                    Open
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
 
         {/* Event detail drawer */}
         <Drawer
@@ -385,9 +573,29 @@ const AdminCalendar: React.FC = () => {
 
               <div>
                 <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#64748b', fontWeight: 700 }}>Host</div>
-                <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>
-                  {`${selected.teacher_first_name || ''} ${selected.teacher_last_name || ''}`.trim() || 'Admin'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>
+                    {hostFullName(selected.teacher_first_name, selected.teacher_last_name, 'Admin')}
+                  </span>
+                  {hostRoleTag(selected.teacher_role)}
+                  {selected.teacher_id > 0 && hostIdFilter !== selected.teacher_id && (
+                    <Button
+                      size="small"
+                      type="link"
+                      style={{ paddingInline: 4 }}
+                      onClick={() => {
+                        setHostRoleFilter(selected.teacher_role === 'admin' ? 'admin' : selected.teacher_role === 'teacher' ? 'teacher' : 'all');
+                        setHostIdFilter(selected.teacher_id);
+                        setSelected(null);
+                      }}
+                    >
+                      Filter calendar
+                    </Button>
+                  )}
                 </div>
+                {selected.teacher_email && (
+                  <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 2 }}>{selected.teacher_email}</div>
+                )}
               </div>
 
               {selected.demo_full_name && (
@@ -483,10 +691,7 @@ const AdminCalendar: React.FC = () => {
               <Select
                 showSearch
                 optionFilterProp="label"
-                options={hosts.map(h => ({
-                  value: h.id,
-                  label: `${h.first_name} ${h.last_name} (${h.role}) · ${h.email}`,
-                }))}
+                options={scheduleHostOptions}
               />
             </Form.Item>
             <Form.Item

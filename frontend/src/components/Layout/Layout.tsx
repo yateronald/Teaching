@@ -598,8 +598,9 @@ const Layout: React.FC = () => {
         location.pathname.startsWith('/app/meeting-join/') ||
         location.pathname.startsWith('/app/meeting-attendance');
 
-    // Only show the live pulse/badge when an active meeting exists and user is elsewhere in the app
-    const showLiveIndicator = hasActiveMeeting && !isMeetingRoute;
+    // Only show the live pulse/badge when an active meeting exists for this user
+    // (never for admins) and the user is elsewhere in the app.
+    const showLiveIndicator = !isAdmin && hasActiveMeeting && !isMeetingRoute;
 
     // Below 1280px the sidebar starts as an icon rail; above it, the user's last choice wins.
     const [collapsed, setCollapsed] = useState(() => r.shouldCollapseSidebar || (readCollapsePref() ?? false));

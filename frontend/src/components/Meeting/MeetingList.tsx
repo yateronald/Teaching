@@ -40,6 +40,7 @@ interface Meeting {
   demo_requester_name?: string | null;
   invitees?: ShareableInvitee[];
   participant_count: number | string;
+  is_currently_in_meeting?: boolean;
   teacher_first_name: string;
   teacher_last_name: string;
   batch_name: string | null;
@@ -553,7 +554,7 @@ const MeetingList: React.FC = () => {
                   value: 'active',
                   label: (
                     <span className="ml-seg">
-                      {view.active.some(m => m.status === 'active') && <i className="ml-pulse" />} Active <b>{view.active.length}</b>
+                      {!isAdmin && view.active.some(m => m.status === 'active' && (!isTeacher || Number(m.teacher_id) === Number(user?.id) || m.is_currently_in_meeting === true)) && <i className="ml-pulse" />} Active <b>{view.active.length}</b>
                     </span>
                   ),
                 },

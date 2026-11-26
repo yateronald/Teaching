@@ -517,7 +517,17 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen>
               upcoming: upcoming.length,
               active: active.length,
               past: past.length,
-              hasLive: active.any((m) => (m['status'] ?? '').toString().toLowerCase() == 'active'),
+              hasLive: active.any((m) {
+                if ((m['status'] ?? '').toString().toLowerCase() != 'active') return false;
+                final me = ref.read(authNotifierProvider).user;
+                if (me == null) return false;
+                if (me.role == 'admin') return false;
+                if (me.role == 'teacher') {
+                  final hostId = int.tryParse('${m['teacher_id'] ?? ''}');
+                  return hostId == me.id || m['is_currently_in_meeting'] == true;
+                }
+                return true;
+              }),
               isCompact: isCompact,
             ),
             const SizedBox(height: 16),

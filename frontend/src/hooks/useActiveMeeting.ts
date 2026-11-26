@@ -13,18 +13,30 @@ export interface ActiveMeetingSummary {
   status: string;
 }
 
+interface RawMeetingItem {
+  id: number;
+  title: string;
+  room_name: string;
+  teacher_id: number;
+  batch_id: number | null;
+  status: string;
+  is_currently_in_meeting?: boolean;
+}
+
 export function useActiveMeeting() {
   const { user, apiCall } = useAuth();
   const [activeMeeting, setActiveMeeting] = useState<ActiveMeetingSummary | null>(null);
   const [hasActiveMeeting, setHasActiveMeeting] = useState(false);
-  // Exam candidates and company managers have no live classes: nothing to watch for them.
-  const noClasses = user?.role === 'candidate' || user?.role === 'org_admin';
-  const signedIn = !!user?.id && !noClasses;
+  // Admins never get the blinking live sidebar badge; exam candidates and company
+  // managers have no live classes. Only teachers (for their own meeting) and
+  // students (for their own enrolled batch's active class) watch live status.
+  const disabled = !user?.id || user.role === 'admin' || user.role === 'candidate' || user.role === 'org_admin';
+  const signedIn = !disabled;
   const apiCallRef = useRef(apiCall);
   apiCallRef.current = apiCall;
 
   const checkActive = useCallback(async () => {
-    if (!user || user.role === 'candidate' || user.role === 'org_admin') {
+    if (disabled || !user) {
       setActiveMeeting(null);
       setHasActiveMeeting(false);
       return;
@@ -35,9 +47,18 @@ export function useActiveMeeting() {
       const list = await resp.json();
       if (!Array.isArray(list)) return;
 
-      // Live only once the teacher has started the class ("active"). A class whose
-      // time slot has begun, or that the teacher merely opened ("waiting"), is not live.
-      const found = list.find((m: any) => m.status === 'active');
+      // Live only once the host has started the class ("active").
+      // For teachers, strictly individual: only blink when this teacher is the
+      // host of the active meeting or currently joined in it (never when another
+      // teacher is running a different class).
+      const myId = Number(user.id);
+      const found = (list as RawMeetingItem[]).find((m) => {
+        if (m.status !== 'active') return false;
+        if (user.role === 'teacher') {
+          return Number(m.teacher_id) === myId || m.is_currently_in_meeting === true;
+        }
+        return true;
+      });
 
       if (found) {
         setActiveMeeting({
@@ -56,7 +77,7 @@ export function useActiveMeeting() {
     } catch {
       // silently ignore transient network failures
     }
-  }, [user?.id]);
+  }, [disabled, user]);
 
   useEffect(() => {
     checkActive();

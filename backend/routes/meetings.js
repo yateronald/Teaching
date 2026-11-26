@@ -222,8 +222,8 @@ const personName = u => `${u.first_name || ''} ${u.last_name || ''}`.trim() || '
 const hasJoinedBefore = async (db, meetingId, userId) =>
   !!(await db.get('SELECT 1 FROM meeting_attendance WHERE meeting_id = $1 AND user_id = $2 LIMIT 1', [meetingId, userId]));
 
-/** Status changes only carry the id: every list re-fetches what it is allowed to see. */
-const announce = (io, event, meeting) => io && io.emit(event, { meetingId: meeting.id });
+/** Status changes carry the id and host teacherId so clients only refresh relevant meetings. */
+const announce = (io, event, meeting) => io && io.emit(event, { meetingId: meeting.id, teacherId: meeting.teacher_id || null });
 
 // ============================================================
 // MEETING CRUD
@@ -393,10 +393,11 @@ router.get('/', async (req, res) => {
     }
 
     const rows = await req.db.all(
-      `SELECT m.*, u.first_name AS teacher_first_name, u.last_name AS teacher_last_name, b.name AS batch_name,
+      `SELECT m.*, u.first_name AS teacher_first_name, u.last_name AS teacher_last_name, u.role AS teacher_role, b.name AS batch_name,
               dr.full_name AS demo_requester_name, dr.email AS demo_requester_email,
               (b.teacher_id = $1) AS is_batch_teacher,
               EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = m.batch_id AND bs.student_id = $1) AS is_member,
+              EXISTS (SELECT 1 FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id = $1 AND ma.left_at IS NULL) AS is_currently_in_meeting,
               (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) AS portal_participant_count,
               (SELECT COUNT(*) FROM meeting_guests mg WHERE mg.meeting_id = m.id AND mg.joined_at IS NOT NULL)::int AS guest_participant_count,
               (SELECT COALESCE(json_agg(json_build_object('email', mi.email, 'name', mi.name, 'notified_at', mi.notified_at) ORDER BY mi.id), '[]'::json)
@@ -431,6 +432,7 @@ router.get('/', async (req, res) => {
         kicked_user_ids,
         is_member,
         is_batch_teacher,
+        is_currently_in_meeting,
         portal_participant_count,
         guest_participant_count,
         invitees_json,
@@ -444,6 +446,7 @@ router.get('/', async (req, res) => {
         require_approval: m.require_approval !== false,
         meeting_kind: m.meeting_kind || 'class',
         participant_count: participantCount,
+        is_currently_in_meeting: !!is_currently_in_meeting,
         my_role: role,
         ...(passcode ? { passcode } : {}),
         ...(passcode && m.is_public ? { public_link: access.publicMeetingUrl(m.room_name, passcode) } : {}),
@@ -460,7 +463,7 @@ router.get('/', async (req, res) => {
 // GET /meetings/admin-calendar — Admin calendar feed across demos, public/external, and batch meetings (MUST be before /:id)
 router.get('/admin-calendar', authorizeRoles('admin'), async (req, res) => {
   try {
-    const { from, to, kind } = req.query;
+    const { from, to, kind, host_id, teacher_id, host_role } = req.query;
     const params = [];
     const conds = ['1=1'];
     if (from) {
@@ -475,23 +478,42 @@ router.get('/admin-calendar', authorizeRoles('admin'), async (req, res) => {
       params.push(kind);
       conds.push(`m.meeting_kind = $${params.length}`);
     }
+    const rawHostId = host_id ?? teacher_id;
+    const parsedHostId = rawHostId !== undefined && rawHostId !== '' ? Number.parseInt(String(rawHostId), 10) : NaN;
+    if (Number.isInteger(parsedHostId) && parsedHostId > 0) {
+      params.push(parsedHostId);
+      conds.push(`m.teacher_id = $${params.length}`);
+    } else if (host_role && ['teacher', 'admin'].includes(String(host_role).toLowerCase())) {
+      params.push(String(host_role).toLowerCase());
+      conds.push(`u.role = $${params.length}`);
+    }
 
-    const rows = await req.db.all(
-      `SELECT m.*,
-              u.first_name AS teacher_first_name, u.last_name AS teacher_last_name, u.email AS teacher_email,
-              b.name AS batch_name,
-              dr.id AS dr_id, dr.full_name AS demo_full_name, dr.email AS demo_email,
-              dr.country AS demo_country, dr.status AS demo_status,
-              (SELECT COALESCE(json_agg(json_build_object('email', mi.email, 'name', mi.name, 'notified_at', mi.notified_at) ORDER BY mi.id), '[]'::json)
-               FROM meeting_invitees mi WHERE mi.meeting_id = m.id) AS invitees_json
-       FROM meetings m
-       LEFT JOIN users u ON u.id = m.teacher_id
-       LEFT JOIN batches b ON b.id = m.batch_id
-       LEFT JOIN demo_requests dr ON dr.id = m.demo_request_id
-       WHERE ${conds.join(' AND ')}
-       ORDER BY COALESCE(m.scheduled_start, m.started_at, m.created_at) ASC`,
-      params
-    );
+    const [rows, hostRows] = await Promise.all([
+      req.db.all(
+        `SELECT m.*,
+                u.first_name AS teacher_first_name, u.last_name AS teacher_last_name,
+                u.email AS teacher_email, u.role AS teacher_role,
+                b.name AS batch_name,
+                dr.id AS dr_id, dr.full_name AS demo_full_name, dr.email AS demo_email,
+                dr.country AS demo_country, dr.status AS demo_status,
+                (SELECT COALESCE(json_agg(json_build_object('email', mi.email, 'name', mi.name, 'notified_at', mi.notified_at) ORDER BY mi.id), '[]'::json)
+                 FROM meeting_invitees mi WHERE mi.meeting_id = m.id) AS invitees_json
+         FROM meetings m
+         LEFT JOIN users u ON u.id = m.teacher_id
+         LEFT JOIN batches b ON b.id = m.batch_id
+         LEFT JOIN demo_requests dr ON dr.id = m.demo_request_id
+         WHERE ${conds.join(' AND ')}
+         ORDER BY COALESCE(m.scheduled_start, m.started_at, m.created_at) ASC`,
+        params
+      ),
+      req.db.all(
+        `SELECT id, first_name, last_name, email, role, is_active
+         FROM users
+         WHERE role IN ('admin', 'teacher')
+           AND (is_active = TRUE OR id IN (SELECT DISTINCT teacher_id FROM meetings WHERE teacher_id IS NOT NULL))
+         ORDER BY CASE WHEN role = 'admin' THEN 0 ELSE 1 END, LOWER(COALESCE(first_name, '')), LOWER(COALESCE(last_name, ''))`
+      ),
+    ]);
 
     const events = rows.map(r => {
       const passcode = access.openPasscode(r.password);
@@ -508,7 +530,16 @@ router.get('/admin-calendar', authorizeRoles('admin'), async (req, res) => {
       };
     });
 
-    res.json({ success: true, events });
+    const hosts = hostRows.map(h => ({
+      id: Number(h.id),
+      first_name: h.first_name || '',
+      last_name: h.last_name || '',
+      email: h.email || '',
+      role: h.role,
+      is_active: h.is_active !== false,
+    }));
+
+    res.json({ success: true, events, hosts });
   } catch (error) {
     console.error('GET /meetings/admin-calendar error:', error);
     res.status(500).json({ error: 'Internal server error' });

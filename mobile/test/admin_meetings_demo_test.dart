@@ -1,8 +1,83 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/core/api/api_client.dart';
+import 'package:mobile/core/auth/token_storage.dart';
 import 'package:mobile/core/constants/app_colors.dart';
+import 'package:mobile/features/admin/calendar/admin_calendar_screen.dart';
 import 'package:mobile/features/admin/common/admin_nav.dart';
 import 'package:mobile/features/admin/demo_requests/demo_model.dart';
+
+class _NoSession extends TokenStorage {
+  @override
+  Future<String?> getToken() async => null;
+}
+
+class _FakeCalendarApi extends ApiClient {
+  _FakeCalendarApi() : super(customBaseUrl: 'http://test.invalid/api');
+
+  final queries = <Map<String, dynamic>>[];
+
+  static final _hosts = [
+    {'id': 1, 'first_name': 'Yao', 'last_name': 'Maxime', 'email': 'yao@example.com', 'role': 'admin'},
+    {'id': 2, 'first_name': 'Marie', 'last_name': 'Curie', 'email': 'marie@example.com', 'role': 'teacher'},
+    {'id': 3, 'first_name': 'Paul', 'last_name': 'Martin', 'email': 'paul@example.com', 'role': 'teacher'},
+  ];
+
+  static List<Map<String, dynamic>> _allEvents() {
+    final now = DateTime.now();
+    final iso = DateTime(now.year, now.month, now.day, 14, 0).toUtc().toIso8601String();
+    return [
+      {
+        'id': 10,
+        'room_name': 'adm-1',
+        'code': 'adm-1',
+        'title': 'Admin Demo',
+        'status': 'scheduled',
+        'meeting_kind': 'demo',
+        'scheduled_start': iso,
+        'teacher_id': 1,
+        'teacher_first_name': 'Yao',
+        'teacher_last_name': 'Maxime',
+        'teacher_email': 'yao@example.com',
+        'teacher_role': 'admin',
+      },
+      {
+        'id': 11,
+        'room_name': 'cls-2',
+        'code': 'cls-2',
+        'title': 'TCF avec Marie',
+        'status': 'scheduled',
+        'meeting_kind': 'class',
+        'scheduled_start': iso,
+        'teacher_id': 2,
+        'teacher_first_name': 'Marie',
+        'teacher_last_name': 'Curie',
+        'teacher_email': 'marie@example.com',
+        'teacher_role': 'teacher',
+      },
+    ];
+  }
+
+  @override
+  Future<Response<T>> get<T>(String path, {Map<String, dynamic>? queryParameters, Options? options}) async {
+    final q = Map<String, dynamic>.from(queryParameters ?? const {});
+    queries.add(q);
+    var evs = _allEvents();
+    if (q['host_id'] != null) {
+      evs = evs.where((e) => e['teacher_id'] == q['host_id']).toList();
+    } else if (q['host_role'] != null) {
+      evs = evs.where((e) => e['teacher_role'] == q['host_role']).toList();
+    }
+    return Response<T>(
+      requestOptions: RequestOptions(path: path),
+      statusCode: 200,
+      data: {'success': true, 'events': evs, 'hosts': _hosts} as T,
+    );
+  }
+}
 
 void main() {
   group('AdminTab indices', () {
@@ -97,6 +172,82 @@ void main() {
         2,
       );
       expect(Demo.proposedSlots({}), isEmpty);
+    });
+  });
+
+  group('AdminCalendarScreen host filters', () {
+    testWidgets('filters by Teachers, Admins, and specific teacher cleanly on 360 px screen', (tester) async {
+      tester.view.physicalSize = const Size(360, 820);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      final api = _FakeCalendarApi();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            apiClientProvider.overrideWithValue(api),
+            tokenStorageProvider.overrideWithValue(_NoSession()),
+          ],
+          child: const MaterialApp(
+            locale: Locale('en'),
+            supportedLocales: [Locale('en'), Locale('fr')],
+            localizationsDelegates: GlobalMaterialLocalizations.delegates,
+            home: Scaffold(body: AdminCalendarScreen()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Initially shows both Admin Demo and TCF avec Marie
+      expect(find.text('Admin Demo'), findsOneWidget);
+      expect(find.text('TCF avec Marie'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // Filter to Teachers only
+      final teachersChip = find.textContaining('Teachers');
+      await tester.ensureVisible(teachersChip);
+      await tester.pumpAndSettle();
+      await tester.tap(teachersChip);
+      await tester.pumpAndSettle();
+      expect(api.queries.last['host_role'], 'teacher');
+      expect(find.text('TCF avec Marie'), findsOneWidget);
+      expect(find.text('Admin Demo'), findsNothing);
+
+      // Filter to Admins only
+      final adminsChip = find.textContaining('Admins');
+      await tester.ensureVisible(adminsChip);
+      await tester.pumpAndSettle();
+      await tester.tap(adminsChip);
+      await tester.pumpAndSettle();
+      expect(api.queries.last['host_role'], 'admin');
+      expect(find.text('Admin Demo'), findsOneWidget);
+      expect(find.text('TCF avec Marie'), findsNothing);
+
+      // Switch back to All hosts and pick a specific teacher via the host picker
+      final allHostsChip = find.text('All hosts');
+      await tester.ensureVisible(allHostsChip);
+      await tester.pumpAndSettle();
+      await tester.tap(allHostsChip);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('calendar-host-picker')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Marie Curie'));
+      await tester.pumpAndSettle();
+
+      expect(api.queries.last['host_id'], 2);
+      expect(api.queries.last['host_role'], isNull);
+      expect(find.text('TCF avec Marie'), findsOneWidget);
+      expect(find.text('Admin Demo'), findsNothing);
+      expect(tester.takeException(), isNull);
+
+      // Reset filters restores all events
+      await tester.tap(find.byKey(const Key('calendar-reset-filters')));
+      await tester.pumpAndSettle();
+      expect(api.queries.last['host_id'], isNull);
+      expect(api.queries.last['host_role'], isNull);
+      expect(find.text('Admin Demo'), findsOneWidget);
+      expect(find.text('TCF avec Marie'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 }
